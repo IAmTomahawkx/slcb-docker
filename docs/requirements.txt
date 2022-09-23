@@ -1,0 +1,7 @@
+sphinx
+docutils<0.18
+sphinxcontrib-asyncio
+sphinxcontrib-websupport
+sphinxext-opengraph
+Pygments
+furo
