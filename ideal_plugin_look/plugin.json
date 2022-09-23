@@ -1,0 +1,16 @@
+{
+    "name": "Cool Plugin",
+    "description": "My cool plugin",
+    "author": "Tom",
+    "version": "1.0",
+    "debug": true,
+    "config": {
+        "MySetting": {
+            "type": "textbox",
+            "title": "Things",
+            "value": "default setting",
+            "tooltip": "just like your normal UI_Config.json",
+            "group": ""
+        }
+    }
+}
