@@ -38,7 +38,7 @@ class DropdownValue(UIConfigValue):
     value: str
 
 
-UIConfig = dict[str, TextBoxValue | NumberBoxValue | CheckBoxValue | SliderValue | DropdownValue]
+UIConfig: dict[str, TextBoxValue | NumberBoxValue | CheckBoxValue | SliderValue | DropdownValue]
 
 
 class Config(TypedDict):

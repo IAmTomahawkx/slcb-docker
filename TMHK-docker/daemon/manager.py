@@ -64,6 +64,23 @@ class Plugin:
 
         return True, self.meta.script_id
 
+    def add_listeners(self, listeners: dict[str, Callable[..., Awaitable[None]]]):
+        for name, cb in listeners.items():
+            if name not in self._listeners:
+                self._listeners[name] = []
+
+            self._listeners[name].append(cb)
+
+    def remove_listeners(self, listeners: dict[str, Callable[..., Awaitable[None]]]):
+        for name, cb in listeners.items():
+            if name not in self._listeners:
+                continue
+
+            try:
+                self._listeners[name].remove(cb)
+            except ValueError:
+                continue
+
     async def try_load(self, script_id: str | None):
         files = set(os.listdir(self.directory))
         if "plugin.json" not in files:
@@ -129,7 +146,7 @@ class Plugin:
             except Exception as e:
                 raise e from error
         except Exception as e: # we want to catch the double traceback to pass to the user
-            response = "".join(traceback.format_exception(type(e), e, e.__traceback__))
+            response = "An error occurred in the error handler\n" + "".join(traceback.format_exception(type(e), e, e.__traceback__))
 
         if len(self._listeners["error"]) > 1:
             response += "\n\nMultiple error handlers registered. Only one will be used, and this message will not go away until there is only one"

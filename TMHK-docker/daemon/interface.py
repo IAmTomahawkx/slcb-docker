@@ -5,15 +5,31 @@ from typing import TYPE_CHECKING, Awaitable, Callable
 if TYPE_CHECKING:
     from manager import Plugin, PluginManager
 
+class InjectorLoadUnloadError(ValueError):
+    pass
 
 class Interface:
     def __init__(self, manager: PluginManager, plugin: Plugin):
         self.__manager = manager
         self.__http = manager._http
         self.__plugin = plugin
+        self.__injectors = []
 
-    async def set_injector(self, injector: Injector):
+    async def load_injector(self, injector: Injector) -> None:
+        if injector in self.__injectors:
+            raise InjectorLoadUnloadError("Injector is already loaded")
+
         await injector._setup(self.__plugin)
+        self.__injectors.append(injector)
+
+    async def unload_injector(self, injector: Injector) -> None:
+        try:
+            self.__injectors.remove(injector)
+        except KeyError:
+            raise InjectorLoadUnloadError("Injector is not loaded")
+
+        await injector._teardown(self.__plugin)
+
 
 
 class Injector:
@@ -31,9 +47,12 @@ class Injector:
     async def _setup(self, plugin: Plugin) -> None:
         plugin.add_listeners(self.__inject_listeners__)
 
+    async def _teardown(self, plugin: Plugin) -> None:
+        plugin.remove_listeners(self.__inject_listeners__)
+
     @staticmethod
-    def listen(name: str):
-        def wrapped(meth):
+    def listen(name: str) -> Callable[[Callable[..., None]], Callable[..., None]]:
+        def wrapped(meth: Callable[..., None]) -> Callable[..., None]:
             cls = meth.__class__
             if not hasattr(cls, "__inject_listeners__"):
                 cls.__inject_listeners__ = {}
