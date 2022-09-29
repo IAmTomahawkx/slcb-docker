@@ -1,6 +1,7 @@
 from typing import Any, Literal, TypedDict
 
-ExecuteSources = Literal[0, 1, 2]  # twitch, discord, youtube
+ExecuteSources = Literal[0, 1, 2, 3, 4]  # twitch, discord, youtube, twitchDM, discordDM
+PayloadType = Literal[0, 1, 2, 3] # execute, parse, state, reload
 Reload = dict[str, str | int | bool]
 
 
@@ -10,7 +11,6 @@ class Execute(TypedDict):
     message: str
     raw_data: str
     is_raw: bool
-    is_dm: bool
     source: ExecuteSources
     service_type: int  # seriously have no clue what this is
 
@@ -27,9 +27,13 @@ class Parse(TypedDict):
 class StateToggle(TypedDict):
     state: bool
 
+class GenericInboundBotPayload(TypedDict):
+    type: Literal[0]
+    data: Execute
 
 class InboundBotPayload(TypedDict):
     script_id: str
+    type: PayloadType
     data: Execute | Reload | Parse | StateToggle
 
 

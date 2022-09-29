@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib
+import logging
 import os
 import traceback
 import uuid
@@ -9,15 +10,18 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Awaitable, Callable, Any
 
 import interface
-from common import MISSING
+from common import MISSING, RawMessage, Message, ParseData
+from enums import PayloadTypeEnum, try_enum
 import ujson
 
 if TYPE_CHECKING:
     from http import HTTPHandler
 
+    from type.payloads import GenericInboundBotPayload, InboundBotPayload, Parse as ParsePayload
     from type.plugin import Config, PluginModule, UIConfig
 
 DIR = Path(".")
+logger = logging.getLogger("dock.pluginmanager")
 
 class PluginLoadFailed(ValueError):
     def __init__(self, script_name: str, error: str, traceback: str | None = None):
@@ -46,6 +50,7 @@ class Plugin:
         self.config: Config | None = None
         self.module: PluginModule | None = None
         self.interface: interface.Interface = interface.Interface(manager, self)
+        self.enabled: bool = False # set to false by default
 
         self.meta: PluginMeta | None = None
         self._listeners: dict[str, list[Callable[..., Awaitable[None]]]] = {}
@@ -164,14 +169,60 @@ class Plugin:
                 except Exception as e:
                     asyncio.create_task(self.call_error_listeners(event, e))
 
+    @property
+    def has_parse_hook(self):
+        return "parse" in self._listeners and self._listeners["parse"]
+
+    async def call_parse_hook(self, payload: ParsePayload) -> str:
+        if not self.has_parse_hook:
+            return payload['string']
+
+        hook = self._listeners["parse"][0]
+        obj: ParseData = ParseData(payload)
+        try:
+            return str(await hook(obj))
+        except Exception as e:
+            asyncio.create_task(self.call_error_listeners("parse", e))
+            return payload['string']
+
 
 class PluginManager:
     def __init__(self, http: HTTPHandler):
         self.plugins = {}
         self._http = http
 
-    async def handle_message(self, payload):
-        pass
+    async def _execute_callback(self, plugin: Plugin, payload: GenericInboundBotPayload):
+        if payload['data']['is_raw']:
+            message = RawMessage(payload['data'], self._http)
+            await plugin.call_listeners("raw_message", data=message)
+        else:
+            message = Message(payload['data'], self._http)
+            await plugin.call_listeners("message", data=message)
+    async def handle_inbound(self, payload: GenericInboundBotPayload | InboundBotPayload) -> None:
+        if payload['type'] == 0:
+            for plugin in self.plugins.values():
+                if plugin.enabled:
+                    asyncio.create_task(self._execute_callback(plugin, payload))
+
+        sid = payload['script_id']
+        if sid not in self.plugins:
+            logger.warning("Inbound payload referencing unknown plugin %s. Discarding", sid)
+    async def handle_parse(self, payload: InboundBotPayload) -> str:
+        type_ = try_enum(PayloadTypeEnum, payload['type'])
+        if type_ is not PayloadTypeEnum.parse:
+            raise TypeError(f"Payload of type {type_.name} ({type_.value}) passed to handle_parse") # type: ignore # pycharm sucks
+
+        sid: str = payload['script_id']
+        if sid not in self.plugins:
+            logger.warning("Inbound parse payload referencing unknown plugin %s. Discarding", sid)
+            raise ValueError("Unknown plugin id")
+
+        plugin: Plugin = self.plugins[sid]
+        data: ParsePayload = payload['data']
+        if not plugin.has_parse_hook:
+            return data['string']
+
+        return await plugin.call_parse_hook(data)
 
     async def load_script(self, directory: str, script_id: str | None) -> tuple[bool, str]:
         pth = DIR / "plugins" / directory
@@ -180,10 +231,9 @@ class PluginManager:
 
         plug = Plugin(pth, self)
         ok, resp = await plug.load(script_id)
-        if not ok:
-            return ok, resp
+        if ok:
+            self.plugins[plug.meta.script_id] = plug
 
-        self.plugins[plug.meta.script_id] = plug
         return ok, resp
 
     async def unload_script(self, reload: bool):

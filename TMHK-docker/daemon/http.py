@@ -23,6 +23,7 @@ class HTTPHandler:
         self.route_table = web.RouteTableDef()
         self.route_table.get("/outbound")(self.outbound)
         self.route_table.get("/inbound")(self.inbound)
+        self.route_table.get("/inbound/parse")(self.inbound_parse)
         self.route_table.get("/inbound-ack")(self.inbound_ack)
         self.route_table.get("/inbound/load-script")(self.inbound_load_script)
         self.route_table.get("/inbound/unload-script")(self.inbound_unload_script)
@@ -46,9 +47,22 @@ class HTTPHandler:
 
         data: list[InboundBotPayload] = await request.json()
         for msg in data:
-            self.loop.create_task(self.manager.handle_message(msg))
+            self.loop.create_task(self.manager.handle_inbound(msg))
 
         return web.Response(status=204)
+
+    async def inbound_parse(self, request: web.Request) -> web.Response:
+        if "Authorization" not in request.headers or request.headers["Authorization"] != self.auth_state:
+            return web.json_response({"error": "missing authorization"}, status=401)
+
+        payload: InboundBotPayload = await request.json()
+        try:
+            resp = await self.manager.handle_parse(payload)
+        except Exception as e:
+            logger.error("Manager failed to handle inbound parse request. Falling back to input", exc_info=e)
+            resp = payload['data']['string']
+
+        return web.Response(status=200, content_type="text/plain", body=resp)
 
     async def inbound_ack(self, request: web.Request) -> web.Response:
         if "Authorization" not in request.headers or request.headers["Authorization"] != self.auth_state:
