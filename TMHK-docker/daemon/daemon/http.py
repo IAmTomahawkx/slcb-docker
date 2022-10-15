@@ -22,7 +22,7 @@ class HTTPHandler:
     def __init__(self, manager: PluginManager | None):
         self.manager: PluginManager | None = manager
         self._auth: str | None = None
-        self._auth_state: AuthState = AuthState.WaitingForClient
+        self._auth_state: AuthState | None = None
         self._auth_event: asyncio.Event | None = None
         self.server: web.Application | None = None
         self.__runner: web.AppRunner | None = None
@@ -47,15 +47,21 @@ class HTTPHandler:
 
     @auth_state.setter
     def auth_state(self, value: AuthState):
-        logger.debug("Changing AuthState from %d (%s) to %d (%s)",
-                    self._auth_state.value, self._auth_state.name, value.value, value.name) # noqa
+        if self._auth_state is None:
+            logger.debug("Setting initial AuthState to %d (%s)", value.value, value.name) # noqa
+        else:
+            logger.debug("Changing AuthState from %d (%s) to %d (%s)",
+                        self._auth_state.value, self._auth_state.name, value.value, value.name) # noqa
         self._auth_state = value
 
     async def setup(self):
         self.loop = asyncio.get_running_loop()
         self._auth_event = asyncio.Event()
+        self.auth_state = AuthState.WaitingForClient
         self.server = web.Application(loop=self.loop)
         self.server.add_routes(self.route_table)
+
+        logger.debug("HTTPHandler ready for service")
 
     async def start_service(self, debug: bool):
         if not self.server:
@@ -77,6 +83,7 @@ class HTTPHandler:
 
         site = self.__site = web.TCPSite(runner, host="127.0.0.1", port=1006)
         await site.start()
+        self.auth_state = AuthState.PendingPingPong
 
     async def end_service(self, error=True):
         if not self.__site or not self.__runner:
@@ -85,7 +92,7 @@ class HTTPHandler:
 
             return
 
-        logger.info("Received call to end service.")
+        logger.info("Received call to end service")
         await self.__runner.cleanup()
         self.__site = None
         self.__runner = None

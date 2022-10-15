@@ -189,6 +189,7 @@ class PayloadTypeEnum(Enum):
 class AuthState(Enum):
     WaitingForClient = 0
     PendingPingPong = 1
-    ClientServerMismatch = 2
-    AuthOK = 3
-    Closing = 4
+    PingPongFailed = 2
+    ClientServerMismatch = 3
+    AuthOK = 4
+    Closing = 5
