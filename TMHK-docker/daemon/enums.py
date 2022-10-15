@@ -30,6 +30,7 @@ __all__ = (
     'Enum',
     'SourcesEnum',
     'PayloadTypeEnum',
+    "AuthState",
     'try_enum'
 )
 
@@ -184,3 +185,10 @@ class PayloadTypeEnum(Enum):
     parse = 1
     state = 2
     reload = 3
+
+class AuthState(Enum):
+    WaitingForClient = 0
+    PendingPingPong = 1
+    ClientServerMismatch = 2
+    AuthOK = 3
+    Closing = 4

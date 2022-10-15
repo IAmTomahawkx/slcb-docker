@@ -41,9 +41,13 @@ class InboundResponsePayload(TypedDict):
     nonce: str
     response: Any
 
+class OutboundDataPayload(TypedDict):
+    type: str
+    args: list[Any]
 
 class OutboundPayload(TypedDict):
     nonce: str
+    data: OutboundDataPayload
 
 class ScriptLoadPayload(TypedDict):
     script_id: str | None

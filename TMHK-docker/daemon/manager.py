@@ -224,7 +224,7 @@ class PluginManager:
 
         return await plugin.call_parse_hook(data)
 
-    async def load_script(self, directory: str, script_id: str | None) -> tuple[bool, str]:
+    async def load_plugin(self, directory: str, script_id: str | None) -> tuple[bool, str]:
         pth = DIR / "plugins" / directory
         if not pth.exists():
             return False, "The given directory does not exist"
@@ -236,5 +236,16 @@ class PluginManager:
 
         return ok, resp
 
-    async def unload_script(self, reload: bool):
+    async def unload_plugin(self, reload: bool):
         ... # TODO
+
+    async def evict_plugins(self):
+        """
+        ungracefully ejects all plugins without calling their cleanup hooks.
+        Should not be used when running normally
+        """
+        ... # TODO
+
+    async def graceful_shutdown(self):
+        ... # TODO
+

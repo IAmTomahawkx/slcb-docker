@@ -1,40 +1,165 @@
 import asyncio
 import logging
+import random
+import sys
 import uuid
 from typing import TYPE_CHECKING, Any
 
-from aiohttp import web
+from aiohttp import web, web_log
+from enums import AuthState
 
 if TYPE_CHECKING:
     from manager import PluginManager
-    from type.payloads import InboundBotPayload, InboundResponsePayload, ScriptLoadPayload, ScriptUnloadPayload
+    from type.payloads import InboundBotPayload, InboundResponsePayload, ScriptLoadPayload, OutboundDataPayload
 
 logger = logging.getLogger("dock.http")
+access_log = logging.getLogger("dock.access")
 
+kill_code = sys.argv[2] if len(sys.argv) >= 3 else None
 
 class HTTPHandler:
-    def __init__(self, manager: PluginManager):
-        self.manager: PluginManager = manager
-        self.auth_state = None
+    def __init__(self, manager: PluginManager | None):
+        self.manager: PluginManager | None = manager
+        self._auth: str | None = None
+        self._auth_state: AuthState = AuthState.WaitingForClient
+        self._auth_event: asyncio.Event | None = None
         self.server: web.Application | None = None
+        self.__runner: web.AppRunner | None = None
+        self.__site: web.TCPSite | None = None
+        self.challenge: str | None = None
         self.nonces: dict[str, asyncio.Future] = dict()
         self.waiting_for_poll: list[dict[str, Any]] = []
 
         self.route_table = web.RouteTableDef()
+        self.route_table.post("/auth")(self.route_auth)
+        self.route_table.post("/pingpong")(self.route_pingpong)
         self.route_table.get("/outbound")(self.outbound)
         self.route_table.get("/inbound")(self.inbound)
         self.route_table.get("/inbound/parse")(self.inbound_parse)
         self.route_table.get("/inbound-ack")(self.inbound_ack)
         self.route_table.get("/inbound/load-script")(self.inbound_load_script)
-        self.route_table.get("/inbound/unload-script")(self.inbound_unload_script)
+        #self.route_table.get("/inbound/unload-script")(self.inbound_unload_script) # TODO
+
+    @property
+    def auth_state(self):
+        return self._auth_state
+
+    @auth_state.setter
+    def auth_state(self, value: AuthState):
+        logger.debug("Changing AuthState from %d (%s) to %d (%s)",
+                    self._auth_state.value, self._auth_state.name, value.value, value.name) # noqa
+        self._auth_state = value
 
     async def setup(self):
         self.loop = asyncio.get_running_loop()
+        self._auth_event = asyncio.Event()
         self.server = web.Application(loop=self.loop)
         self.server.add_routes(self.route_table)
 
+    async def start_service(self, debug: bool):
+        if not self.server:
+            raise RuntimeError("Call to start_service before call to setup")
+
+        kwargs = {
+            "keepalive_timeout": 75,
+            "handle_signals": False
+        }
+
+        if debug:
+            kwargs["access_log_class"] = web_log.AccessLogger
+            kwargs["access_log_format"] = web_log.AccessLogger.LOG_FORMAT
+            kwargs["access_log"] = access_log
+
+        runner = self.__runner = web.AppRunner(self.server, **kwargs)
+
+        await runner.setup()
+
+        site = self.__site = web.TCPSite(runner, host="127.0.0.1", port=1006)
+        await site.start()
+
+    async def end_service(self, error=True):
+        if not self.__site or not self.__runner:
+            if error:
+                raise RuntimeError("Call to end_service with no active server")
+
+            return
+
+        logger.info("Received call to end service.")
+        await self.__runner.cleanup()
+        self.__site = None
+        self.__runner = None
+        self.auth_state = AuthState.Closing
+        self._auth = None
+
+    async def wait_for_pingpong(self, timeout: int | None = None):
+        if self.auth_state == AuthState.AuthOK:
+            return
+
+        while self._auth_event is None:
+            raise RuntimeError("Call to wait_for_pingpong before setup")
+
+        if timeout:
+            return await asyncio.wait_for(self._auth_event.wait(), timeout=timeout)
+
+        return await self._auth_event.wait()
+
+
+    async def route_auth(self, request: web.Request) -> web.Response:
+        if self._auth:
+            return web.Response(status=401, body="Auth already set")
+
+        code = await request.text()
+        self._auth = code # TODO: need a more resilient authorization method
+        self.auth_state = AuthState.PendingPingPong
+        challenge = self.challenge = random.randbytes(50).decode()
+        return web.Response(status=200, body=challenge)
+
+    async def route_pingpong(self, request: web.Request) -> web.Response:
+        if "Authorization" not in request.headers or request.headers["Authorization"] != self._auth:
+            return web.json_response({"error": "missing authorization"}, status=401)
+
+        if self.challenge is None:
+            return web.Response(status=404)
+
+        challenge = await request.text()
+        if challenge != self.challenge:
+            self.auth_state = AuthState.ClientServerMismatch
+            self._auth_event.set()
+
+            return web.Response(status=400, body="Failed pingpong")
+
+        self.auth_state = AuthState.AuthOK
+        self._auth_event.set()
+
+        return web.Response(status=204)
+
+    async def route_kill_override(self, request: web.Request) -> web.Response:
+        if not kill_code:
+            return web.json_response({"error": "killcode not provided on startup"}, status=401)
+
+        if "Authorization" not in request.headers or request.headers["Authorization"] != kill_code:
+            return web.json_response({"error": "missing authorization"}, status=401)
+
+        graceful = request.query.get("graceful", "1") != "0"
+
+        logger.info("Received call to kill server (graceful=%s)", "yes" if graceful else "no")
+        async def to_call():
+            if graceful:
+                await self.manager.graceful_shutdown()
+            else:
+                await self.manager.evict_plugins()
+                await self.end_service()
+
+            await self.end_service()
+
+        def cb():
+            self.loop.create_task(to_call())
+
+        self.loop.call_later(1, cb)
+        return web.Response(status=204)
+
     async def outbound(self, request: web.Request) -> web.Response:
-        if "Authorization" not in request.headers or request.headers["Authorization"] != self.auth_state:
+        if "Authorization" not in request.headers or request.headers["Authorization"] != self._auth:
             return web.json_response({"error": "missing authorization"}, status=401)
 
         resp = web.json_response(self.waiting_for_poll.copy())
@@ -42,7 +167,7 @@ class HTTPHandler:
         return resp
 
     async def inbound(self, request: web.Request) -> web.Response:
-        if "Authorization" not in request.headers or request.headers["Authorization"] != self.auth_state:
+        if "Authorization" not in request.headers or request.headers["Authorization"] != self._auth:
             return web.json_response({"error": "missing authorization"}, status=401)
 
         data: list[InboundBotPayload] = await request.json()
@@ -52,7 +177,7 @@ class HTTPHandler:
         return web.Response(status=204)
 
     async def inbound_parse(self, request: web.Request) -> web.Response:
-        if "Authorization" not in request.headers or request.headers["Authorization"] != self.auth_state:
+        if "Authorization" not in request.headers or request.headers["Authorization"] != self._auth:
             return web.json_response({"error": "missing authorization"}, status=401)
 
         payload: InboundBotPayload = await request.json()
@@ -65,7 +190,7 @@ class HTTPHandler:
         return web.Response(status=200, content_type="text/plain", body=resp)
 
     async def inbound_ack(self, request: web.Request) -> web.Response:
-        if "Authorization" not in request.headers or request.headers["Authorization"] != self.auth_state:
+        if "Authorization" not in request.headers or request.headers["Authorization"] != self._auth:
             return web.json_response({"error": "missing authorization"}, status=401)
 
         data: list[InboundResponsePayload] = await request.json()
@@ -80,14 +205,17 @@ class HTTPHandler:
         return web.Response(status=204)
 
     async def inbound_load_script(self, request: web.Request) -> web.Response:
-        if "Authorization" not in request.headers or request.headers["Authorization"] != self.auth_state:
+        if "Authorization" not in request.headers or request.headers["Authorization"] != self._auth:
             return web.json_response({"error": "missing authorization"}, status=401)
 
         data: ScriptLoadPayload = await request.json()
-        resp = await self.manager.load_script(data['directory'], data['script_id'])
+        ok, resp = await self.manager.load_plugin(data['directory'], data['script_id'])
+        if ok:
+            return web.Response(status=200, body=resp) # body confirms plugin id
 
+        return web.Response(status=600, body=resp) # body contains the error message
 
-    async def put_request(self, payload: dict[str, Any], timeout: float = 5.0) -> Any:
+    async def put_request(self, payload: OutboundDataPayload, timeout: float = 5.0) -> Any:
         nonce = str(uuid.uuid4())
         waiter = self.loop.create_future()
         self.nonces[nonce] = waiter
@@ -104,3 +232,14 @@ class HTTPHandler:
 
     def notify_error(self, msg: str):
         self.waiting_for_poll.append({"nonce": None, "data": {"type": "error", "message": msg}})
+
+
+    # --- API STUFF
+
+    async def add_points(self, userid: str, username: str, amount: int) -> bool:
+        payload = {
+            "type": "AddPoints",
+            "args": [userid, username, amount]
+        }
+
+        return await self.put_request(payload)
