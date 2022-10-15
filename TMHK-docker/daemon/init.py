@@ -4,9 +4,9 @@ import sys
 import pkg_resources
 import logging
 
-from manager import PluginManager
-from http import HTTPHandler
-from enums import AuthState
+from daemon.manager import PluginManager
+from daemon.http import HTTPHandler
+from daemon.enums import AuthState
 
 logger = logging.getLogger("dock.init")
 

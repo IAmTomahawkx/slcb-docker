@@ -1,3 +1,4 @@
+from __future__ import annotations
 import asyncio
 import logging
 import random
@@ -6,11 +7,11 @@ import uuid
 from typing import TYPE_CHECKING, Any
 
 from aiohttp import web, web_log
-from enums import AuthState
+from .enums import AuthState
 
 if TYPE_CHECKING:
-    from manager import PluginManager
-    from type.payloads import InboundBotPayload, InboundResponsePayload, ScriptLoadPayload, OutboundDataPayload
+    from .manager import PluginManager
+    from .type.payloads import InboundBotPayload, InboundResponsePayload, ScriptLoadPayload, OutboundDataPayload
 
 logger = logging.getLogger("dock.http")
 access_log = logging.getLogger("dock.access")

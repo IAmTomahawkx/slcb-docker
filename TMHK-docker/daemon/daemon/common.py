@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from typing import Any, TYPE_CHECKING
-from enums import SourcesEnum, try_enum
+from .enums import SourcesEnum, try_enum
 
 if TYPE_CHECKING:
-    from type.payloads import Execute as _ExecutePayload, Parse as _ParsePayload
-    from http import HTTPHandler
+    from .type.payloads import Execute as _ExecutePayload, Parse as _ParsePayload
+    from .http import HTTPHandler
 
 __all__ = (
     "MISSING",

@@ -9,16 +9,16 @@ import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Awaitable, Callable, Any
 
-import interface
-from common import MISSING, RawMessage, Message, ParseData
-from enums import PayloadTypeEnum, try_enum
+from . import interface
+from .common import MISSING, RawMessage, Message, ParseData
+from .enums import PayloadTypeEnum, try_enum
 import ujson
 
 if TYPE_CHECKING:
     from http import HTTPHandler
 
-    from type.payloads import GenericInboundBotPayload, InboundBotPayload, Parse as ParsePayload
-    from type.plugin import Config, PluginModule, UIConfig
+    from .type.payloads import GenericInboundBotPayload, InboundBotPayload, Parse as ParsePayload
+    from .type.plugin import Config, PluginModule, UIConfig
 
 DIR = Path(".")
 logger = logging.getLogger("dock.pluginmanager")

@@ -3,7 +3,7 @@ import traceback
 from typing import TYPE_CHECKING, Awaitable, Callable
 
 if TYPE_CHECKING:
-    from manager import Plugin, PluginManager
+    from .manager import Plugin, PluginManager
 
 class InjectorLoadUnloadError(ValueError):
     pass
