@@ -34,6 +34,8 @@ class HTTPHandler:
         self.route_table = web.RouteTableDef()
         self.route_table.post("/auth")(self.route_auth)
         self.route_table.post("/pingpong")(self.route_pingpong)
+        self.route_table.get("/kill")(self.route_kill_override)
+        self.route_table.get("/authcheck")(self.route_ensure_auth)
         self.route_table.get("/outbound")(self.outbound)
         self.route_table.get("/inbound")(self.inbound)
         self.route_table.get("/inbound/parse")(self.inbound_parse)
@@ -116,7 +118,8 @@ class HTTPHandler:
         if self._auth:
             return web.Response(status=401, body="Auth already set")
 
-        code = await request.text()
+        data = await request.json()
+        code = data["code"]
         self._auth = code # TODO: need a more resilient authorization method
         self.auth_state = AuthState.PendingPingPong
         challenge = self.challenge = random.randbytes(50).decode()
@@ -129,7 +132,8 @@ class HTTPHandler:
         if self.challenge is None:
             return web.Response(status=404)
 
-        challenge = await request.text()
+        data = await request.json()
+        challenge = data["challenge"]
         if challenge != self.challenge:
             self.auth_state = AuthState.ClientServerMismatch
             self._auth_event.set()
@@ -145,8 +149,8 @@ class HTTPHandler:
         if not kill_code:
             return web.json_response({"error": "killcode not provided on startup"}, status=401)
 
-        if "Authorization" not in request.headers or request.headers["Authorization"] != kill_code:
-            return web.json_response({"error": "missing authorization"}, status=401)
+        if "code" not in request.query or request.query["code"] != kill_code:
+            return web.json_response({"error": "missing code"}, status=401)
 
         graceful = request.query.get("graceful", "1") != "0"
 
@@ -165,6 +169,13 @@ class HTTPHandler:
 
         self.loop.call_later(1, cb)
         return web.Response(status=204)
+
+    async def route_ensure_auth(self, request: web.Request) -> web.Response:
+        if "Authorization" not in request.headers or request.headers["Authorization"] != self._auth:
+            return web.json_response({"error": "bad authorization"}, status=401)
+
+        return web.Response(status=204)
+
 
     async def outbound(self, request: web.Request) -> web.Response:
         if "Authorization" not in request.headers or request.headers["Authorization"] != self._auth:
@@ -201,11 +212,11 @@ class HTTPHandler:
         if "Authorization" not in request.headers or request.headers["Authorization"] != self._auth:
             return web.json_response({"error": "missing authorization"}, status=401)
 
-        data: list[InboundResponsePayload] = await request.json()
+        data: list[InboundResponsePayload] = (await request.json())["response"]
         for msg in data:
             if msg["nonce"] in self.nonces:
                 fut = self.nonces.pop(msg["nonce"])
-                fut.set_result(msg["response"])
+                fut.set_result(msg["response"]) # TODO deal with error field
 
             else:
                 logger.warning(f"Received response for unknown nonce '{msg['nonce']}'")
