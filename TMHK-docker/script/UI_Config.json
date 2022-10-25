@@ -1,0 +1,25 @@
+{
+    "output_file": "settings.json",
+    "is_debug": {
+        "type": "tickbox",
+        "value": false,
+        "title": "Enable Debug",
+        "tooltip": "enables debug logging",
+        "group": "debug"
+    },
+    "_btn_flush_log": {
+        "type": "button",
+        "title": "Flush Log",
+        "tooltip": "Flushes the logging buffer to file. Will not provide a feedback response.",
+        "function": "_logging_flush",
+        "wsevent": "",
+        "group": "debug"
+    },
+    "310_executable": {
+        "type": "textbox",
+        "value": "%USERPROFILE%\\AppData\\Local\\Programs\\Python\\Python310\\Python310.exe",
+        "title": "3.10 Executable location",
+        "tooltip": "Where the 3.10 executable is located. %USERPROFILE% will be replaced with C:\\Users\\youruser\\",
+        "group": ""
+    }
+}
