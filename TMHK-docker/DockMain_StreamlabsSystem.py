@@ -290,7 +290,10 @@ def start_daemon():
 
 def _start_daemon():
     state.killcode = secrets.token_urlsafe(8)
-    state.process = subprocess.Popen(args=[os.path.join(DAEMON_PATH, "init.py"), state.killcode], executable=settings["310_executable"].replace("%USERPROFILE%", os.environ["USERPROFILE"]))
+    state.process = subprocess.Popen(
+        args=[os.path.join(DAEMON_PATH, "init.py"), state.killcode],
+        executable=settings["310_executable"].replace("%USERPROFILE%", os.environ["USERPROFILE"])
+    )
     if not _daemon_startup():
         logger.debug("PingPong failed. Attempting restart")
         state.process.wait()
@@ -351,7 +354,8 @@ def Init():
     write_stamp(int(time.time()))
     if state.auth:
         if get_request("auth-check") is not None:
-            pass # TODO: figure out what to do if our auth is rejected on startup
+            Parent.SendStreamMessage("Failed to connect to the daemon!")
+            logger.critical("Unable to connect to daemon. Invalid auth. Please manually kill the daemon process and try again")
     else:
         start_daemon()
 
