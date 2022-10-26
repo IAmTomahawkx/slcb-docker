@@ -15,3 +15,14 @@ ___
 This script acts as a wrapper around the Streamlabs Chatbot, allowing you to program in a modern, fully typed environment.
 No more unresolved `Parent` variable, no more being unable to do networking. You'll be able to program normally, in an async environment.
 
+## How do I use this?
+Currently, this software is unstable and in pre-alpha. I have not made release copies which can easily be installed.
+That being said, you can install this manually by cloning the repository and copying the TMHK-docker folder into your bots Scripts folder.
+
+
+## Roadmap
+Here are a list of things that I will be implementing. Checked boxes mean it is currently implemented
+
+- [x] Base daemon with poll+response capabilities
+- [ ] Create shim scripts in the bot for active representation of each plugin (including UI)
+- [ ] Create plugin interface which retains the functionality of the Chatbot interface, while also introducing modern practices
