@@ -320,6 +320,7 @@ def _start_daemon(level=0):
         Parent.Log("reee", str(args))
         state.process = subprocess.Popen(
             args=args,
+            cwd=DAEMON_PATH,
             #env={"ENABLE_VIRTUAL_TERMINAL_PROCESSING": "1"}
         )
     except Exception as e:
@@ -354,7 +355,10 @@ def poll_daemon(t):
         else:
             response.append({"nonce": event["nonce"], response: attr(*data["args"]), "error": None})
 
-    post_request("inbound", {"response": response})
+    if response:
+        post_request("inbound", {"response": response})
+
+    state.last_poll = t
 
 # XXX serializing
 

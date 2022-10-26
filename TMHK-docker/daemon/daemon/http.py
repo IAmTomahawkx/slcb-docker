@@ -4,6 +4,7 @@ import logging
 import random
 import secrets
 import sys
+import time
 import uuid
 from typing import TYPE_CHECKING, Any
 
@@ -29,6 +30,7 @@ class HTTPHandler:
         self.__runner: web.AppRunner | None = None
         self.__site: web.TCPSite | None = None
         self.challenge: str | None = None
+        self.last_poll: int | None = None
         self.nonces: dict[str, asyncio.Future] = dict()
         self.waiting_for_poll: list[dict[str, Any]] = []
 
@@ -38,7 +40,7 @@ class HTTPHandler:
         self.route_table.get("/kill")(self.route_kill_override)
         self.route_table.get("/authcheck")(self.route_ensure_auth)
         self.route_table.get("/outbound")(self.outbound)
-        self.route_table.get("/inbound")(self.inbound)
+        self.route_table.post("/inbound")(self.inbound)
         self.route_table.get("/inbound/parse")(self.inbound_parse)
         self.route_table.get("/inbound-ack")(self.inbound_ack)
         self.route_table.get("/inbound/load-script")(self.inbound_load_script)
@@ -190,6 +192,7 @@ class HTTPHandler:
 
         resp = web.json_response(self.waiting_for_poll.copy())
         self.waiting_for_poll.clear()
+        self.last_poll = int(time.time())
         return resp
 
     async def inbound(self, request: web.Request) -> web.Response:

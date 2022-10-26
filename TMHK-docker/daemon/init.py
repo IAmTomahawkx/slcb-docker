@@ -1,6 +1,9 @@
 import asyncio
 import os
+import pathlib
+import traceback
 import sys
+import time
 
 import pkg_resources
 import logging
@@ -97,6 +100,28 @@ def setup_logging():
     _logger.setLevel(logging.DEBUG)
     _logger.addHandler(handler)
 
+daemon_lockfile = pathlib.Path("daemon.lock")
+client_lockfile = pathlib.Path("../client.lock")
+
+def write_lockfile(t: int) -> None:
+    with daemon_lockfile.open("w") as f:
+        f.write(str(t))
+
+def read_client_lockfile() -> int | None:
+    if not client_lockfile.exists():
+        print(client_lockfile.absolute())
+        return None
+
+    with client_lockfile.open("r") as f:
+        resp = f.read().strip()
+
+    try:
+        return int(resp)
+    except:
+        print(resp)
+        return None
+
+
 async def main():
     logger.info(f"Initializing Streamlabs Chatbot Dock (A: proto@{version})")
     logger.debug("Running on python %s", sys.version)
@@ -122,9 +147,27 @@ async def main():
         await http.end_service(error=False)
         return
 
-    # preflight load or wait for script to send load payloads?
+    while True:
+        await asyncio.sleep(5)
+        now = int(time.time())
+        client_update = now - (read_client_lockfile() or now)
+        last_poll = now - (http.last_poll or now - 60)
+        if client_update > 60 or (client_update > 30 and last_poll > 10):
+            # client hasn't updated it's lockfile in over a minute,
+            # or client hasn't updated in 30 seconds and the last poll was more than 10 seconds ago
+            logger.warning("No client lockfile update for %s seconds and/or no poll for %s seconds. Considering client offline and exiting", client_update, last_poll)
+            break
+
+        logger.debug("Last client update %s seconds ago. Last poll %s seconds ago", client_update, last_poll)
+
+    await http.end_service()
+    await manager.graceful_shutdown(has_connection=False)
+
 
 if __name__ == "__main__":
     setup_logging()
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except Exception as e:
+        traceback.print_exception(type(e), e, e.__traceback__)
     input()

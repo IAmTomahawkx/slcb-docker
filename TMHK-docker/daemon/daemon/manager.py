@@ -246,6 +246,6 @@ class PluginManager:
         """
         ... # TODO
 
-    async def graceful_shutdown(self):
+    async def graceful_shutdown(self, has_connection: bool = True):
         ... # TODO
 
