@@ -1,25 +1,41 @@
 {
     "output_file": "settings.json",
+    "310_executable": {
+        "type": "textbox",
+        "value": "%USERPROFILE%\\AppData\\Local\\Programs\\Python\\Python310\\Python310.exe",
+        "label": "3.10 Executable location",
+        "tooltip": "Where the 3.10 executable is located. %USERPROFILE% will be replaced with C:\\Users\\youruser\\",
+        "group": ""
+    },
     "is_debug": {
         "type": "tickbox",
         "value": false,
-        "title": "Enable Debug",
+        "label": "Enable Debug",
         "tooltip": "enables debug logging",
         "group": "debug"
     },
     "_btn_flush_log": {
         "type": "button",
-        "title": "Flush Log",
+        "label": "Flush Log",
         "tooltip": "Flushes the logging buffer to file. Will not provide a feedback response.",
         "function": "_logging_flush",
         "wsevent": "",
         "group": "debug"
     },
-    "310_executable": {
-        "type": "textbox",
-        "value": "%USERPROFILE%\\AppData\\Local\\Programs\\Python\\Python310\\Python310.exe",
-        "title": "3.10 Executable location",
-        "tooltip": "Where the 3.10 executable is located. %USERPROFILE% will be replaced with C:\\Users\\youruser\\",
-        "group": ""
+    "_btn_graceful_shutdown": {
+        "type": "button",
+        "label": "Shut down dock (Graceful)",
+        "tooltip": "Shuts down the dock daemon, gracefully shutting down all scripts running inside of it",
+        "function": "graceful_kill_daemon",
+        "wsevent": "",
+        "group": "debug"
+    },
+    "_btn_ungraceful_shutdown": {
+        "type": "button",
+        "label": "Shut down dock (Ungraceful)",
+        "tooltip": "Shuts down the dock daemon, terminating all scripts running inside of it immediately",
+        "function": "ungraceful_kill_daemon",
+        "wsevent": "",
+        "group": "debug"
     }
 }

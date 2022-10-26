@@ -162,6 +162,8 @@ async def main():
 
     await http.end_service()
     await manager.graceful_shutdown(has_connection=False)
+    if daemon_lockfile.exists(): # should exist but just in case:
+        os.remove(daemon_lockfile)
 
 
 if __name__ == "__main__":

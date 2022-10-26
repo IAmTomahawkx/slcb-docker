@@ -6,13 +6,14 @@ import time
 import random as _random
 import logging
 import traceback
+from System.Windows.Forms.MessageBox import Show
 
-random = _random.WichmannHill() # noqa
-sys.platform = "win32" # fixes the bot setting platform to `cli`, which breaks subprocess
+random = _random.WichmannHill()  # noqa
+sys.platform = "win32"  # fixes the bot setting platform to `cli`, which breaks subprocess
 import subprocess
 
 if False:
-    Parent = object() # noqa
+    Parent = object()  # noqa
 
 ScriptName = "Dock Hub"
 Description = "Manages the plugin Dock"
@@ -20,21 +21,7 @@ Creator = "TMHK"
 Version = "0.1.0a"
 Website = None
 
-if Version.endswith(('a', 'b', 'rc')):
-    # append version identifier based on commit count
-    try:
-        p = subprocess.Popen(['git', 'rev-list', '--count', 'HEAD'],
-                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        out, err = p.communicate()
-        if out:
-            Version += out.decode('utf-8').strip()
-        p = subprocess.Popen(['git', 'rev-parse', '--short', 'HEAD'],
-                             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        out, err = p.communicate()
-        if out:
-            Version += '+g' + out.decode('utf-8').strip()
-    except Exception:
-        pass
+msgbox = lambda obj: Show(str(obj))
 
 DIR_PATH = os.path.abspath(os.path.dirname(__file__))
 BOT_SETTINGS_PATH = os.path.join(DIR_PATH, "settings.json")
@@ -60,14 +47,16 @@ if os.path.exists(STAMP_PATH):
 # XXX logging
 
 try:
-    unicode # noqa
+    unicode  # noqa
     _has_unicode = True
 except NameError:
     _has_unicode = False
 
+
 class BufferedStreamHandler(logging.StreamHandler):
-    stream_formatter = logging.Formatter("[%(asctime)s] [%(levelname)s] %(name)s: %(message)s", "%Y-%m-%d %H:%M:%S") # noqa
-    bot_formatter = logging.Formatter("[%(levelname)s] %(name)s: %(message)s", "%Y-%m-%d %H:%M:%S") # noqa
+    stream_formatter = logging.Formatter("[%(asctime)s] [%(levelname)s] %(name)s: %(message)s",
+                                         "%Y-%m-%d %H:%M:%S")  # noqa
+    bot_formatter = logging.Formatter("[%(levelname)s] %(name)s: %(message)s", "%Y-%m-%d %H:%M:%S")  # noqa
 
     def __init__(self, stream):
         logging.StreamHandler.__init__(self, stream)
@@ -93,17 +82,17 @@ class BufferedStreamHandler(logging.StreamHandler):
             else:
                 try:
                     if (isinstance(msg, unicode) and
-                        getattr(stream, 'encoding', None)):
+                            getattr(stream, 'encoding', None)):
                         ufs = u'%s\n'
                         try:
                             stream.write(ufs % msg)
                         except UnicodeEncodeError:
-                            #Printing to terminals sometimes fails. For example,
-                            #with an encoding of 'cp1251', the above write will
-                            #work if written to a stream opened or wrapped by
-                            #the codecs module, but fail when writing to a
-                            #terminal even when the codepage is set to cp1251.
-                            #An extra encoding step seems to be needed.
+                            # Printing to terminals sometimes fails. For example,
+                            # with an encoding of 'cp1251', the above write will
+                            # work if written to a stream opened or wrapped by
+                            # the codecs module, but fail when writing to a
+                            # terminal even when the codepage is set to cp1251.
+                            # An extra encoding step seems to be needed.
                             stream.write((ufs % msg).encode(stream.encoding))
                     else:
                         stream.write(fs % msg)
@@ -116,13 +105,13 @@ class BufferedStreamHandler(logging.StreamHandler):
 
     def emit(self, record):
         try:
-            #if settings["is_debug"] or record.levelno > logging.DEBUG:
+            if settings["is_debug"] or record.levelno > logging.DEBUG:
                 msg = self.bot_formatter.format(record)
                 Parent.Log(record.name, msg)
         except NameError:
-            pass # case when Parent isn't in existence yet
+            pass  # case when Parent isn't in existence yet
 
-        #self.buffer.append(record)
+        # self.buffer.append(record)
         self._emit(record)
         self.flush()
 
@@ -152,6 +141,7 @@ _logging_handler = BufferedStreamHandler(codecs.open(LOG_FILE, mode="w", encodin
 _logging_handler.setLevel(logging.DEBUG)
 logger.addHandler(_logging_handler)
 logger_http.addHandler(_logging_handler)
+
 
 def _logging_flush():
     _logging_handler.flush()
@@ -211,10 +201,13 @@ def get_request(route):
     :type route: str
     :return: dict[Literal["error"], str] | dict[str, Any] | None
     """
-    logger_http.debug("Sending request to route %s ", route)
+    if route != "outbound":
+        logger_http.debug("Sending request to route %s ", route)
+
     resp = Parent.GetRequest("http://127.0.0.1:1006/" + route.strip("/"), {"Authorization": state.auth})
     data = json.loads(resp)
-    logger_http.debug("Received response from %s with status %s", route, data["status"])
+    if route != "outbound":
+        logger_http.debug("Received response from %s with status %s", route, data["status"])
 
     if data["status"] == 204:
         return None
@@ -234,10 +227,13 @@ def post_request(route, payload):
     :param payload: The payload body. must be a dict
     :return: dict[Literal["error"], str] | dict[str, Any] | None
     """
-    logger_http.debug("Sending request to route %s ", route)
+    if route != "inbound":
+        logger_http.debug("Sending request to route %s ", route)
+
     resp = Parent.PostRequest("http://127.0.0.1:1006/" + route.strip("/"), {"Authorization": state.auth}, payload, True)
     data = json.loads(resp)
-    logger_http.debug("Received response from %s with status %s", route, data["status"])
+    if route != "inbound":
+        logger_http.debug("Received response from %s with status %s", route, data["status"])
 
     if data["status"] == 204:
         return None
@@ -321,7 +317,7 @@ def _start_daemon(level=0):
         state.process = subprocess.Popen(
             args=args,
             cwd=DAEMON_PATH,
-            #env={"ENABLE_VIRTUAL_TERMINAL_PROCESSING": "1"}
+            # env={"ENABLE_VIRTUAL_TERMINAL_PROCESSING": "1"}
         )
     except Exception as e:
         Parent.Log(ScriptName, traceback.format_exc())
@@ -330,7 +326,7 @@ def _start_daemon(level=0):
         state.process.wait()
         if level > 2:
             return
-        #_start_daemon(level+1)
+        # _start_daemon(level+1)
 
 def poll_daemon(t):
     if state.auth_state != AuthState.AuthOK:
@@ -351,7 +347,8 @@ def poll_daemon(t):
         data = event['data']
         attr = getattr(Parent, data["type"], None)
         if not attr:
-            response.append({"nonce": event["nonce"], "response": None, "error": "Unable to find Event Type %s" % data["type"]})
+            response.append(
+                {"nonce": event["nonce"], "response": None, "error": "Unable to find Event Type %s" % data["type"]})
         else:
             response.append({"nonce": event["nonce"], response: attr(*data["args"]), "error": None})
 
@@ -359,6 +356,21 @@ def poll_daemon(t):
         post_request("inbound", {"response": response})
 
     state.last_poll = t
+
+def graceful_kill_daemon():
+    # called from the ui tab
+    logger.info("Received UI order to shut down daemon (graceful)")
+    _kill_daemon()
+
+def ungraceful_kill_daemon():
+    # called from ui tab
+    logger.info("Received UI order to shut down daemon (ungraceful)")
+    _kill_daemon(False)
+
+def _kill_daemon(graceful=True):
+    resp = get_request("kill?code=%s&graceful=%i" % (state.killcode, int(graceful)))
+    if resp is not None:
+        msgbox("Failed to kill the dock. Consider doing it from the process manager. (dock said: %s)" % str(resp))
 
 # XXX serializing
 
@@ -393,12 +405,16 @@ def serialize_data_payload(data):
 def Init():
     write_stamp(int(time.time()))
     if state.auth:
-        t = get_request("auth-check")
-        if t == "An error occurred while sending the request.": # daemon isnt running
+        t = get_request("authcheck")
+        if t == "An error occurred while sending the request.":  # daemon isnt running
             start_daemon()
+        elif t is None:  # we still have auth after reload
+            logger.info("Successfully re-authenticated after reload")
+            state.auth_state = AuthState.AuthOK
         else:
             Parent.SendStreamMessage("Failed to connect to the daemon!")
-            logger.critical("Unable to connect to daemon. Invalid auth. Please manually kill the daemon process and try again")
+            logger.critical(
+                "Unable to connect to daemon. Invalid auth. Please manually kill the daemon process and try again")
     else:
         start_daemon()
 
@@ -422,3 +438,19 @@ def Unload():
             "auth": state.auth,
             "killcode": state.killcode
         }, f)
+
+def ScriptToggled(script_state):
+    if not script_state:
+        warning = "You appear to have disabled the dock script. " \
+                  "Doing so prevent any scripts being run through the dock from being handled. " \
+                  "You should probably turn the it back on."
+        msgbox(warning)
+    else:
+        if time.time() - state.last_poll > 10:  # We need to check if the daemon died from the script being disabled
+            logger.warning("Script has been toggled OFF for more than 10 seconds. Checking if daemon has died")
+            resp = get_request("authcheck")
+            if resp is not None:
+                logger.warning("Unable to authenticate with daemon after script toggle. Attempting to start new daemon")
+                start_daemon()
+            else:
+                logger.info("Successful authentication after script toggle")
