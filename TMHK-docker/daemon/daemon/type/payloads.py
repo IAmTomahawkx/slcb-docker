@@ -11,6 +11,7 @@ class Execute(TypedDict):
     message: str
     raw_data: str
     is_raw: bool
+    is_chat: bool
     source: ExecuteSources
     service_type: int  # seriously have no clue what this is
 

@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import traceback
 from typing import TYPE_CHECKING
-from common import RawMessage, Message, ParseData
+from daemon.common import RawMessage, Message, ParseData
 
 if TYPE_CHECKING:
-    from interface import Injector, Interface
+    from daemon.interface import Injector, Interface
 
 async def setup(parent: Interface) -> None:
     await parent.load_injector(MyInjector(parent))

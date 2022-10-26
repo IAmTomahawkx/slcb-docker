@@ -317,6 +317,34 @@ def poll_daemon(t):
 
     post_request("inbound", {"response": response})
 
+# XXX serializing
+
+def serialize_data_payload(data):
+    if data.IsWhisper():
+        if data.IsFromTwitch():
+            source = 3
+        else:
+            source = 4
+    else:
+        if data.IsFromTwitch():
+            source = 0
+        elif data.IsFromDiscord():
+            source = 1
+        else:
+            source = 2
+
+    return {
+        "userid": data.User,
+        "username": data.UserName,
+        "message": data.Message,
+        "is_chat": data.IsChatMessage(),
+        "raw_data": data.RawData,
+        "is_raw": data.IsRawData(),
+        "source": source,
+        "service_type": data.ServiceType
+    }
+
+
 # XXX bot stuff
 
 def Init():
@@ -333,10 +361,10 @@ def Tick():
         write_stamp(now)
 
     if now - state.last_poll > 1:
-        poll_daemon()
+        poll_daemon(now)
 
 def Execute(data):
-    pass
+    post_request("inbound/parse", {"type": 0, "data": serialize_data_payload(data)})
 
 def Unload():
     logger.info("Received UNLOAD from bot")
