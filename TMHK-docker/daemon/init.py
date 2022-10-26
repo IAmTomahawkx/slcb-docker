@@ -5,6 +5,12 @@ import sys
 import pkg_resources
 import logging
 
+try:
+    import ujson, aiohttp
+except ModuleNotFoundError:
+    import subprocess
+    subprocess.run([sys.executable, "-m", "pip", "install", "ujson", "aiohttp"])
+
 from daemon.manager import PluginManager
 from daemon.http import HTTPHandler
 from daemon.enums import AuthState
@@ -81,7 +87,7 @@ def setup_logging():
     _logger = logging.getLogger("dock")
     handler = logging.StreamHandler()
 
-    if (hasattr(handler.stream, "isatty") and handler.stream.isatty()) or any(x in os.environ for x in ["ANSICON", "WT_SESSION", "PYCHARM"]):
+    if (hasattr(handler.stream, "isatty") and handler.stream.isatty()) and any(x in os.environ for x in ["ANSICON", "WT_SESSION", "PYCHARM_HOSTED"]):
         formatter = _ColourFormatter()
     else:
         dt_fmt = '%Y-%m-%d %H:%M:%S'
@@ -102,7 +108,7 @@ async def main():
     http.manager = manager # circular arguments, so do this and tell the type checker to take a hike
 
     await http.setup()
-    await http.start_service(debug=False)
+    await http.start_service(debug=True)
     try:
         await http.wait_for_pingpong(timeout=10)
     except asyncio.TimeoutError:
@@ -121,3 +127,4 @@ async def main():
 if __name__ == "__main__":
     setup_logging()
     asyncio.run(main())
+    input()

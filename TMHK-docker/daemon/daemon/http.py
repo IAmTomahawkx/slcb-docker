@@ -2,6 +2,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+import secrets
 import sys
 import uuid
 from typing import TYPE_CHECKING, Any
@@ -116,30 +117,36 @@ class HTTPHandler:
 
     async def route_auth(self, request: web.Request) -> web.Response:
         if self._auth:
+            logger.debug("Received AUTH setup, but auth is already set!")
             return web.Response(status=401, body="Auth already set")
 
         data = await request.json()
         code = data["code"]
         self._auth = code # TODO: need a more resilient authorization method
         self.auth_state = AuthState.PendingPingPong
-        challenge = self.challenge = random.randbytes(50).decode()
-        return web.Response(status=200, body=challenge)
+        challenge = self.challenge = secrets.token_urlsafe(16)
+        logger.debug("Received AUTH setup with code %s. Responding with challenge %s", code, challenge)
+        return web.json_response({"challenge": challenge})
 
     async def route_pingpong(self, request: web.Request) -> web.Response:
         if "Authorization" not in request.headers or request.headers["Authorization"] != self._auth:
             return web.json_response({"error": "missing authorization"}, status=401)
 
         if self.challenge is None:
+            logger.debug("Received pingpong, but no challenge is pending")
             return web.Response(status=404)
 
         data = await request.json()
         challenge = data["challenge"]
+
         if challenge != self.challenge:
+            logger.warning("Received invalid challenge %s, expected %s", challenge, self.challenge)
             self.auth_state = AuthState.ClientServerMismatch
             self._auth_event.set()
 
             return web.Response(status=400, body="Failed pingpong")
 
+        logger.debug("Received pingpong with OK challenge response %s", challenge)
         self.auth_state = AuthState.AuthOK
         self._auth_event.set()
 

@@ -2,10 +2,10 @@ import codecs
 import json
 import os
 import sys
-import secrets
 import time
 import random as _random
 import logging
+import traceback
 
 random = _random.WichmannHill() # noqa
 sys.platform = "win32" # fixes the bot setting platform to `cli`, which breaks subprocess
@@ -18,27 +18,28 @@ ScriptName = "Dock Hub"
 Description = "Manages the plugin Dock"
 Creator = "TMHK"
 Version = "0.1.0a"
+Website = None
 
-if version.endswith(('a', 'b', 'rc')):
+if Version.endswith(('a', 'b', 'rc')):
     # append version identifier based on commit count
     try:
         p = subprocess.Popen(['git', 'rev-list', '--count', 'HEAD'],
                              stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         out, err = p.communicate()
         if out:
-            version += out.decode('utf-8').strip()
+            Version += out.decode('utf-8').strip()
         p = subprocess.Popen(['git', 'rev-parse', '--short', 'HEAD'],
                              stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         out, err = p.communicate()
         if out:
-            version += '+g' + out.decode('utf-8').strip()
+            Version += '+g' + out.decode('utf-8').strip()
     except Exception:
         pass
 
 DIR_PATH = os.path.abspath(os.path.dirname(__file__))
 BOT_SETTINGS_PATH = os.path.join(DIR_PATH, "settings.json")
 STAMP_PATH = os.path.join(DIR_PATH, "client.lock")
-DAEMON_PATH = os.path.join(os.path.dirname(DIR_PATH), "daemon") # TODO: determine where daemon folder should go
+DAEMON_PATH = os.path.join(DIR_PATH, "daemon")
 DAEMON_LOCKFILE = os.path.join(DAEMON_PATH, "daemon.lock")
 RESTART_FILE = os.path.join(DIR_PATH, "restart.lock")
 LOG_FILE = os.path.join(DIR_PATH, "script.log")
@@ -50,7 +51,7 @@ if os.path.exists(BOT_SETTINGS_PATH):
 else:
     settings = {
         "is_debug": True,
-        "310_executable": ""
+        "310_executable": "%USERPROFILE%\AppData\Local\Programs\Python\Python310\Python.exe"
     }
 
 if os.path.exists(STAMP_PATH):
@@ -69,7 +70,7 @@ class BufferedStreamHandler(logging.StreamHandler):
     bot_formatter = logging.Formatter("[%(levelname)s] %(name)s: %(message)s", "%Y-%m-%d %H:%M:%S") # noqa
 
     def __init__(self, stream):
-        logging.StreamHandler.__init__(stream)
+        logging.StreamHandler.__init__(self, stream)
         self.buffer = []
 
     def _emit(self, record):
@@ -115,13 +116,15 @@ class BufferedStreamHandler(logging.StreamHandler):
 
     def emit(self, record):
         try:
-            if settings["is_debug"] or record.levelno > logging.DEBUG:
+            #if settings["is_debug"] or record.levelno > logging.DEBUG:
                 msg = self.bot_formatter.format(record)
                 Parent.Log(record.name, msg)
         except NameError:
             pass # case when Parent isn't in existence yet
 
-        self.buffer.append(record)
+        #self.buffer.append(record)
+        self._emit(record)
+        self.flush()
 
     def flush(self):
         if self.buffer:
@@ -142,9 +145,13 @@ class BufferedStreamHandler(logging.StreamHandler):
 
 
 logger = logging.getLogger("dock")
+logger.setLevel(logging.DEBUG)
 logger_http = logging.getLogger("dock.http")
-_logging_handler = BufferedStreamHandler(codecs.open(LOG_FILE))
+logger_http.setLevel(logging.DEBUG)
+_logging_handler = BufferedStreamHandler(codecs.open(LOG_FILE, mode="w", encoding="UTF-8"))
+_logging_handler.setLevel(logging.DEBUG)
 logger.addHandler(_logging_handler)
+logger_http.addHandler(_logging_handler)
 
 def _logging_flush():
     _logging_handler.flush()
@@ -164,8 +171,8 @@ class AuthState(object):
 class _State(object):
     def __init__(self):
         self.auth_state = AuthState.WaitingForInit
-        self.last_stamp = None
-        self.last_poll = None
+        self.last_stamp = time.time()
+        self.last_poll = time.time()
         self.auth = None
         self.killcode = None
         self.process = None
@@ -213,11 +220,11 @@ def get_request(route):
         return None
 
     elif 200 <= data["status"] <= 299:
-        payload = json.loads(resp["response"])
+        payload = json.loads(data["response"])
         return payload
 
     else:
-        return resp["error"]
+        return data["error"]
 
 def post_request(route, payload):
     """
@@ -236,17 +243,31 @@ def post_request(route, payload):
         return None
 
     elif 200 <= data["status"] <= 299:
-        payload = json.loads(resp["response"])
+        Parent.Log(ScriptName, str(data["response"]))
+        payload = json.loads(data["response"])
         return payload
 
     else:
-        return resp["error"]
+        Parent.Log(ScriptName + "err", str(data))
+        return data["error"]
 
 # XXX daemon management
 
+def _generate_auth():
+    import string
+    opts = string.ascii_letters + string.digits
+    return "".join([random.choice(opts) for _ in range(32)])
+
 def _daemon_startup():
-    state.auth = secrets.token_urlsafe(8)
-    response = post_request("auth", {"code": state.auth})
+    state.auth = _generate_auth()
+    for i in range(5):
+        response = post_request("auth", {"code": state.auth})
+        if isinstance(response, dict) and "challenge" in response:
+            break
+        else:
+            time.sleep(0.5)
+            continue
+
     if isinstance(response, dict) and "challenge" in response:
         resp = post_request("pingpong", {"challenge": response["challenge"]})
         if resp is None:
@@ -288,16 +309,27 @@ def start_daemon():
 
     _start_daemon()
 
-def _start_daemon():
-    state.killcode = secrets.token_urlsafe(8)
-    state.process = subprocess.Popen(
-        args=[os.path.join(DAEMON_PATH, "init.py"), state.killcode],
-        executable=settings["310_executable"].replace("%USERPROFILE%", os.environ["USERPROFILE"])
-    )
+def _start_daemon(level=0):
+    state.killcode = _generate_auth()
+    try:
+        args = [
+            settings["310_executable"].replace("%USERPROFILE%", os.environ["USERPROFILE"]),
+            os.path.join(DAEMON_PATH, "init.py"),
+            state.killcode
+        ]
+        Parent.Log("reee", str(args))
+        state.process = subprocess.Popen(
+            args=args,
+            #env={"ENABLE_VIRTUAL_TERMINAL_PROCESSING": "1"}
+        )
+    except Exception as e:
+        Parent.Log(ScriptName, traceback.format_exc())
     if not _daemon_startup():
         logger.debug("PingPong failed. Attempting restart")
         state.process.wait()
-        _start_daemon()
+        if level > 2:
+            return
+        #_start_daemon(level+1)
 
 def poll_daemon(t):
     if state.auth_state != AuthState.AuthOK:
@@ -305,8 +337,12 @@ def poll_daemon(t):
         return
 
     resp = get_request("outbound")
+    if resp == "An error occurred while sending the request.":
+        logger.error("Failed to fetch.")
+        return
+
     if not isinstance(resp, list):
-        logger.error("Unexpected %s, expected list from daemon poll response", repr(type(resp)))
+        logger.error("Unexpected %s of type %s, expected list from daemon poll response", str(resp), repr(type(resp)))
         return
 
     response = []
@@ -353,7 +389,10 @@ def serialize_data_payload(data):
 def Init():
     write_stamp(int(time.time()))
     if state.auth:
-        if get_request("auth-check") is not None:
+        t = get_request("auth-check")
+        if t == "An error occurred while sending the request.": # daemon isnt running
+            start_daemon()
+        else:
             Parent.SendStreamMessage("Failed to connect to the daemon!")
             logger.critical("Unable to connect to daemon. Invalid auth. Please manually kill the daemon process and try again")
     else:
@@ -373,3 +412,9 @@ def Execute(data):
 def Unload():
     logger.info("Received UNLOAD from bot")
     _logging_handler.close()
+    with codecs.open(RESTART_FILE, mode="w", encoding="UTF-8") as f:
+        json.dump({
+            "t": int(time.time()),
+            "auth": state.auth,
+            "killcode": state.killcode
+        }, f)
