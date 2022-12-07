@@ -101,7 +101,7 @@ def setup_logging():
     _logger.addHandler(handler)
 
 daemon_lockfile = pathlib.Path("daemon.lock")
-client_lockfile = pathlib.Path("../client.lock")
+client_lockfile = pathlib.Path("../data/client.lock")
 
 def write_lockfile(t: int) -> None:
     with daemon_lockfile.open("w") as f:

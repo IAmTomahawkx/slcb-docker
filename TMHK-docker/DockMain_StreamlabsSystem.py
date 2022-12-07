@@ -24,12 +24,15 @@ Website = None
 msgbox = lambda obj: Show(str(obj))
 
 DIR_PATH = os.path.abspath(os.path.dirname(__file__))
+DATA_DIR = os.path.join(DIR_PATH, "data")
 BOT_SETTINGS_PATH = os.path.join(DIR_PATH, "settings.json")
-STAMP_PATH = os.path.join(DIR_PATH, "client.lock")
+STAMP_PATH = os.path.join(DATA_DIR, "client.lock")
 DAEMON_PATH = os.path.join(DIR_PATH, "daemon")
 DAEMON_LOCKFILE = os.path.join(DAEMON_PATH, "daemon.lock")
-RESTART_FILE = os.path.join(DIR_PATH, "restart.lock")
-LOG_FILE = os.path.join(DIR_PATH, "script.log")
+RESTART_FILE = os.path.join(DATA_DIR, "restart.lock")
+LOG_FILE = os.path.join(DATA_DIR, "script.log")
+SCRIPT_TRACKER_FILE = os.path.join(DATA_DIR, "")
+
 
 if os.path.exists(BOT_SETTINGS_PATH):
     with codecs.open(BOT_SETTINGS_PATH, encoding="utf-8-sig") as f:
@@ -40,6 +43,9 @@ else:
         "is_debug": True,
         "310_executable": "%USERPROFILE%\AppData\Local\Programs\Python\Python310\Python.exe"
     }
+
+if not os.path.exists(DATA_DIR):
+    os.mkdir(DATA_DIR)
 
 if os.path.exists(STAMP_PATH):
     os.remove(STAMP_PATH)
@@ -357,21 +363,6 @@ def poll_daemon(t):
 
     state.last_poll = t
 
-def graceful_kill_daemon():
-    # called from the ui tab
-    logger.info("Received UI order to shut down daemon (graceful)")
-    _kill_daemon()
-
-def ungraceful_kill_daemon():
-    # called from ui tab
-    logger.info("Received UI order to shut down daemon (ungraceful)")
-    _kill_daemon(False)
-
-def _kill_daemon(graceful=True):
-    resp = get_request("kill?code=%s&graceful=%i" % (state.killcode, int(graceful)))
-    if resp is not None:
-        msgbox("Failed to kill the dock. Consider doing it from the process manager. (dock said: %s)" % str(resp))
-
 # XXX serializing
 
 def serialize_data_payload(data):
@@ -454,3 +445,24 @@ def ScriptToggled(script_state):
                 start_daemon()
             else:
                 logger.info("Successful authentication after script toggle")
+
+def SettingsReload(data):
+    data = json.loads(data)
+    settings.update(data)
+
+# XXX UI buttons
+
+def graceful_kill_daemon():
+    # called from the ui tab
+    logger.info("Received UI order to shut down daemon (graceful)")
+    _kill_daemon()
+
+def ungraceful_kill_daemon():
+    # called from ui tab
+    logger.info("Received UI order to shut down daemon (ungraceful)")
+    _kill_daemon(False)
+
+def _kill_daemon(graceful=True):
+    resp = get_request("kill?code=%s&graceful=%i" % (state.killcode, int(graceful)))
+    if resp is not None:
+        msgbox("Failed to kill the dock. Consider doing it from the process manager. (dock said: %s)" % str(resp))
