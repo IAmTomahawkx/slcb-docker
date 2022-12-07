@@ -7,6 +7,8 @@ import time
 import random as _random
 import logging
 import traceback
+import uuid
+
 from System.Windows.Forms.MessageBox import Show
 
 random = _random.WichmannHill()  # noqa
@@ -33,6 +35,8 @@ DAEMON_LOCKFILE = os.path.join(DAEMON_PATH, "daemon.lock")
 RESTART_FILE = os.path.join(DATA_DIR, "restart.lock")
 LOG_FILE = os.path.join(DATA_DIR, "script.log")
 SCRIPT_TRACKER_FILE = os.path.join(DATA_DIR, "script-list.json")
+SHIM_TEMPLATE_FILE = os.path.join(DIR_PATH, "shim-template.py")
+SCRIPTS_DIR = os.path.dirname(DIR_PATH)
 
 
 if os.path.exists(BOT_SETTINGS_PATH):
@@ -388,8 +392,7 @@ def serialize_data_payload(data):
         "is_chat": data.IsChatMessage(),
         "raw_data": data.RawData,
         "is_raw": data.IsRawData(),
-        "source": source,
-        "service_type": data.ServiceType
+        "source": source
     }
 
 
@@ -411,6 +414,7 @@ def Init():
     else:
         start_daemon()
 
+    init_commons()
     atinit_search_scripts()
 
 def Tick():
@@ -517,11 +521,14 @@ def atinit_search_scripts():
                     "enable_debug": metadata["debug"],
                     "protected_upgrade_directories": metadata["protected_dirs"],
                     "onboarded_at": int(time.time()),
-                    "shim_name": shim_name
+                    "shim_name": shim_name,
+                    "plugin_has_components": "config" in metadata and len(metadata["config"]) > 0
                 }
 
     with codecs.open(SCRIPT_TRACKER_FILE, mode="w", encoding="utf-8") as f:
         json.dump(output, f)
+
+    state.script_tracking = output
 
 def onboard_script(dirname, dir_path):
     with codecs.open(os.path.join(dir_path, "plugin.json"), encoding="utf-8") as f:
@@ -539,5 +546,55 @@ def onboard_script(dirname, dir_path):
 
 # XXX shim management
 
+def init_commons():
+    sys.path.append(os.path.join(DIR_PATH, "common"))
+    commons = __import__("dock_common")
+    commons.button = shim_button_pressed
+    commons.initial_settings = shim_initial_settings
+    commons.settings_reloaded = shim_settings_reloaded
+    commons.script_toggled = shim_script_toggled
+    commons.initial_state = shim_initial_state
+
 def create_shim(metadata):
-    pass # TODO
+    name = "dockmanaged@" + str(uuid.uuid4())[:8]
+    with codecs.open(SHIM_TEMPLATE_FILE, encoding="utf-8") as f:
+        shim = f.read()
+
+    shim = shim\
+        .replace("@name", metadata["name"])\
+        .replace("@description", metadata["description"])\
+        .replace("@author", metadata["author"])\
+        .replace("@version", metadata["version"])\
+        .replace("@shim_name", name)\
+        .replace("@dock_common_module", "dock_common")
+
+    os.mkdir(os.path.join(SCRIPTS_DIR, name))
+
+    shim_pth = os.path.join(SCRIPTS_DIR, name, "DockShim_StreamlabsSystem.py")
+    with codecs.open(shim_pth, mode="w", encoding="utf-8") as f:
+        f.write(shim)
+
+    if "config" in metadata and metadata["config"]:
+        ui_pth = os.path.join(SCRIPTS_DIR, name, "UI_Config.json")
+        conf = {"output_file": "shim-ui-settings.json"}
+        conf.update(metadata["config"])
+
+        with codecs.open(ui_pth, mode="w", encoding="utf-8") as f:
+            json.dump(conf, f)
+
+    return name
+
+def shim_button_pressed(shim_name, function):
+    pass
+
+def shim_initial_settings(shim_name, settings_):
+    pass
+
+def shim_settings_reloaded(shim_name, settings_):
+    pass
+
+def shim_script_toggled(shim_name, state_):
+    pass
+
+def shim_initial_state(shim_name, state_):
+    pass
