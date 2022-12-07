@@ -71,7 +71,7 @@ def Execute(data):
     pass
 
 def SettingsReload(data):
-    dock_commons.settings_reloaded(SHIM_NAME, json.loads(data))
+    dock_commons.settings_reloaded(SHIM_NAME, data)
 
 def ScriptToggled(state):
     if dock_commons is not None:

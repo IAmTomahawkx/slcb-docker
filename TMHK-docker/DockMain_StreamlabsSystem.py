@@ -116,7 +116,7 @@ class BufferedStreamHandler(logging.StreamHandler):
 
     def emit(self, record):
         try:
-            if settings["is_debug"] or record.levelno > logging.DEBUG:
+            if True:#settings["is_debug"] or record.levelno > logging.DEBUG:
                 msg = self.bot_formatter.format(record)
                 Parent.Log(record.name, msg)
         except NameError:
@@ -249,6 +249,9 @@ def post_request(route, payload):
 
     if data["status"] == 204:
         return None
+
+    elif data["status"] == 203:
+        return data["response"]
 
     elif 200 <= data["status"] <= 299:
         Parent.Log(ScriptName, str(data["response"]))
@@ -479,6 +482,8 @@ def _kill_daemon(graceful=True):
 # XXX script tracking
 
 def atinit_search_scripts():
+    did_onboard = False
+
     scripts_dir = os.path.dirname(DIR_PATH)
     dirs = set(os.listdir(scripts_dir))
 
@@ -512,7 +517,8 @@ def atinit_search_scripts():
                     logger.warning("Could not onboard directory %s: %s", d, e.message)
                     continue
 
-                output[shim_name] = {
+                did_onboard = True
+                output[shim_name] = processed_meta = {
                     "@meta": {
                         "name": metadata["name"],
                         "author": metadata["author"],
@@ -522,13 +528,26 @@ def atinit_search_scripts():
                     "protected_upgrade_directories": metadata["protected_dirs"],
                     "onboarded_at": int(time.time()),
                     "shim_name": shim_name,
+                    "id": None,
+                    "did_fail_load": False,
                     "plugin_has_components": "config" in metadata and len(metadata["config"]) > 0
                 }
+
+                response = post_request("inbound/load-plugin", {"script_id": None, "directory": os.path.join(DAEMON_PATH, "plugins", d)})
+                if isinstance(response, dict) and "id" in response:
+                    processed_meta["id"] = response["id"]
+                else:
+                    processed_meta["did_fail_load"] = True
+                    logger.warning("Failed to load plugin %s because: %s", metadata["name"], response)
+
 
     with codecs.open(SCRIPT_TRACKER_FILE, mode="w", encoding="utf-8") as f:
         json.dump(output, f)
 
     state.script_tracking = output
+
+    if did_onboard:
+        msgbox("It seems you've imported a new script that uses the dock. Please reload your scripts tab again to complete the import")
 
 def onboard_script(dirname, dir_path):
     with codecs.open(os.path.join(dir_path, "plugin.json"), encoding="utf-8") as f:
@@ -590,8 +609,8 @@ def shim_button_pressed(shim_name, function):
 def shim_initial_settings(shim_name, settings_):
     pass
 
-def shim_settings_reloaded(shim_name, settings_):
-    pass
+def shim_settings_reloaded(shim_name, settings_json):
+    post_request("inbound/sett")
 
 def shim_script_toggled(shim_name, state_):
     pass

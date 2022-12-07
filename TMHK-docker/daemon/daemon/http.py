@@ -43,7 +43,7 @@ class HTTPHandler:
         self.route_table.post("/inbound")(self.inbound)
         self.route_table.get("/inbound/parse")(self.inbound_parse)
         self.route_table.get("/inbound-ack")(self.inbound_ack)
-        self.route_table.get("/inbound/load-script")(self.inbound_load_script)
+        self.route_table.post("/inbound/load-plugin")(self.inbound_load_plugin)
         #self.route_table.get("/inbound/unload-script")(self.inbound_unload_script) # TODO
 
     @property
@@ -233,16 +233,16 @@ class HTTPHandler:
 
         return web.Response(status=204)
 
-    async def inbound_load_script(self, request: web.Request) -> web.Response:
+    async def inbound_load_plugin(self, request: web.Request) -> web.Response:
         if "Authorization" not in request.headers or request.headers["Authorization"] != self._auth:
             return web.json_response({"error": "missing authorization"}, status=401)
 
         data: ScriptLoadPayload = await request.json()
         ok, resp = await self.manager.load_plugin(data['directory'], data['script_id'])
         if ok:
-            return web.Response(status=200, body=resp) # body confirms plugin id
+            return web.json_response({"id": resp}) # body confirms plugin id
 
-        return web.Response(status=600, body=resp) # body contains the error message
+        return web.Response(status=203, body=resp) # body contains the error message
 
     async def put_request(self, payload: OutboundDataPayload, timeout: float = 5.0) -> Any:
         nonce = str(uuid.uuid4())
