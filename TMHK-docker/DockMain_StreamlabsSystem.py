@@ -1,6 +1,7 @@
 import codecs
 import json
 import os
+import shutil
 import sys
 import time
 import random as _random
@@ -31,7 +32,7 @@ DAEMON_PATH = os.path.join(DIR_PATH, "daemon")
 DAEMON_LOCKFILE = os.path.join(DAEMON_PATH, "daemon.lock")
 RESTART_FILE = os.path.join(DATA_DIR, "restart.lock")
 LOG_FILE = os.path.join(DATA_DIR, "script.log")
-SCRIPT_TRACKER_FILE = os.path.join(DATA_DIR, "")
+SCRIPT_TRACKER_FILE = os.path.join(DATA_DIR, "script-list.json")
 
 
 if os.path.exists(BOT_SETTINGS_PATH):
@@ -172,6 +173,7 @@ class _State(object):
         self.auth = None
         self.killcode = None
         self.process = None
+        self.script_tracking = {}
 
         if os.path.exists(RESTART_FILE):
             with codecs.open(RESTART_FILE, encoding="utf-8") as f:
@@ -409,6 +411,8 @@ def Init():
     else:
         start_daemon()
 
+    atinit_search_scripts()
+
 def Tick():
     now = int(time.time())
     if now - state.last_stamp > 30:
@@ -466,3 +470,74 @@ def _kill_daemon(graceful=True):
     resp = get_request("kill?code=%s&graceful=%i" % (state.killcode, int(graceful)))
     if resp is not None:
         msgbox("Failed to kill the dock. Consider doing it from the process manager. (dock said: %s)" % str(resp))
+
+
+# XXX script tracking
+
+def atinit_search_scripts():
+    scripts_dir = os.path.dirname(DIR_PATH)
+    dirs = set(os.listdir(scripts_dir))
+
+    if os.path.exists(SCRIPT_TRACKER_FILE):
+        with codecs.open(SCRIPT_TRACKER_FILE, encoding="utf-8") as f:
+            try:
+                data = json.load(f)
+            except:
+                data = {}
+    else:
+        data = {}
+
+    output = {}
+
+    for d in dirs:
+        if d in data:
+            output[d] = data[d]
+            continue
+
+        else:
+            script_dir = os.path.join(scripts_dir, d)
+            try:
+                dir_contents = os.listdir(script_dir)
+            except WindowsError:
+                continue # not a directory
+            if "plugin.json" in dir_contents: # this is a new script to be loaded
+                logger.debug("Found new directory '%s' with plugin.json, attempting to onboard", d)
+                try:
+                    metadata, shim_name = onboard_script(d, script_dir)
+                except Exception as e:
+                    logger.warning("Could not onboard directory %s: %s", d, e.message)
+                    continue
+
+                output[shim_name] = {
+                    "@meta": {
+                        "name": metadata["name"],
+                        "author": metadata["author"],
+                        "version": metadata["version"]
+                    },
+                    "enable_debug": metadata["debug"],
+                    "protected_upgrade_directories": metadata["protected_dirs"],
+                    "onboarded_at": int(time.time()),
+                    "shim_name": shim_name
+                }
+
+    with codecs.open(SCRIPT_TRACKER_FILE, mode="w", encoding="utf-8") as f:
+        json.dump(output, f)
+
+def onboard_script(dirname, dir_path):
+    with codecs.open(os.path.join(dir_path, "plugin.json"), encoding="utf-8") as f:
+        metadata = json.load(f)
+
+    path = os.path.join(DAEMON_PATH, "plugins", dirname)
+    if os.path.exists(path):
+        # TODO: manage plugin updates, applying protected_dirs metadata
+        raise RuntimeError("TODO")
+
+    shutil.move(dir_path, path)
+    shim_name = create_shim(metadata)
+    return metadata, shim_name
+
+
+# XXX shim management
+
+def create_shim(metadata):
+    pass # TODO

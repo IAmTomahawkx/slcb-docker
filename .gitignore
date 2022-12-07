@@ -2,3 +2,5 @@ venv/
 .venv/
 .idea/
 .vscode/
+
+TMHK-docker/daemon/plugins/
