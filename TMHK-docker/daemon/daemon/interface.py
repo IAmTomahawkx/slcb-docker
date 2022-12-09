@@ -42,10 +42,10 @@ class Injector:
         if "error" not in cls.__inject_listeners__:
             cls.__inject_listeners__["error"] = cls.on_error # TODO: does this pass self?
 
-        return super().__new__()
+        return super().__new__(cls)
 
     async def _setup(self, plugin: Plugin) -> None:
-        plugin.add_listeners(self.__inject_listeners__)
+        plugin.add_listeners(self, self.__inject_listeners__)
 
     async def _teardown(self, plugin: Plugin) -> None:
         plugin.remove_listeners(self.__inject_listeners__)
