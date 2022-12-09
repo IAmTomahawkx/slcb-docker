@@ -270,6 +270,7 @@ def _generate_auth():
 
 def _daemon_startup():
     state.auth = _generate_auth()
+    response = None
     for i in range(5):
         response = post_request("auth", {"code": state.auth})
         if isinstance(response, dict) and "challenge" in response:
