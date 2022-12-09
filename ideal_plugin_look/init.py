@@ -4,7 +4,7 @@ import traceback
 from daemon.common import RawMessage, Message, ParseData
 from daemon.interface import Injector, Interface
 
-async def setup(parent: Interface) -> None:
+async def init(parent: Interface) -> None:
     await parent.load_injector(MyInjector(parent))
 
 class MyInjector(Injector):

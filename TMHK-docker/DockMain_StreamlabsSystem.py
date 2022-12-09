@@ -8,7 +8,9 @@ import random as _random
 import logging
 import traceback
 import uuid
+import clr
 
+clr.AddReference("System.Windows.Forms")
 from System.Windows.Forms.MessageBox import Show
 
 random = _random.WichmannHill()  # noqa
@@ -250,9 +252,6 @@ def post_request(route, payload):
     if data["status"] == 204:
         return None
 
-    elif data["status"] == 203:
-        return data["response"]
-
     elif 200 <= data["status"] <= 299:
         Parent.Log(ScriptName, str(data["response"]))
         payload = json.loads(data["response"])
@@ -429,7 +428,7 @@ def Tick():
         poll_daemon(now)
 
 def Execute(data):
-    post_request("inbound/parse", {"type": 0, "data": serialize_data_payload(data)})
+    post_request("inbound", {"type": 0, "data": serialize_data_payload(data)})
 
 def Unload():
     logger.info("Received UNLOAD from bot")
@@ -457,7 +456,7 @@ def ScriptToggled(script_state):
             else:
                 logger.info("Successful authentication after script toggle")
 
-def SettingsReload(data):
+def ReloadSettings(data):
     data = json.loads(data)
     settings.update(data)
 
@@ -533,12 +532,13 @@ def atinit_search_scripts():
                     "plugin_has_components": "config" in metadata and len(metadata["config"]) > 0
                 }
 
-                response = post_request("inbound/load-plugin", {"script_id": None, "directory": os.path.join(DAEMON_PATH, "plugins", d)})
-                if isinstance(response, dict) and "id" in response:
+                response = post_request("inbound/load-plugin", {"plugin_id": None, "directory": os.path.join(DAEMON_PATH, "plugins", d)})
+                if "id" in response:
                     processed_meta["id"] = response["id"]
-                else:
+
+                if "error" in response:
                     processed_meta["did_fail_load"] = True
-                    logger.warning("Failed to load plugin %s because: %s", metadata["name"], response)
+                    logger.warning("Failed to load plugin %s because: %s", metadata["name"], response["error"])
 
 
     with codecs.open(SCRIPT_TRACKER_FILE, mode="w", encoding="utf-8") as f:
@@ -564,6 +564,17 @@ def onboard_script(dirname, dir_path):
 
 
 # XXX shim management
+
+SHIM_DEBUG_OPTIONS = {
+    "@dock/debug-reload": {
+        "type": "button",
+        "label": "Reload plugin",
+        "tooltip": "",
+        "function": "__dock_reload",
+        "wsevent": "",
+        "group": "Dock Debug"
+    }
+}
 
 def init_commons():
     sys.path.append(os.path.join(DIR_PATH, "common"))
@@ -594,23 +605,36 @@ def create_shim(metadata):
         f.write(shim)
 
     if "config" in metadata and metadata["config"]:
-        ui_pth = os.path.join(SCRIPTS_DIR, name, "UI_Config.json")
-        conf = {"output_file": "shim-ui-settings.json"}
-        conf.update(metadata["config"])
-
-        with codecs.open(ui_pth, mode="w", encoding="utf-8") as f:
-            json.dump(conf, f)
+        write_shim_config(metadata, name)
 
     return name
 
+def write_shim_config(metadata, name):
+    ui_pth = os.path.join(SCRIPTS_DIR, name, "UI_Config.json")
+    conf = {"output_file": "shim-ui-settings.json"}
+    conf.update(metadata["config"])
+
+    if metadata["debug"]:
+        conf.update(SHIM_DEBUG_OPTIONS)
+
+    with codecs.open(ui_pth, mode="w", encoding="utf-8") as f:
+        json.dump(conf, f)
+
 def shim_button_pressed(shim_name, function):
-    pass
+    logger.debug("Received button press from shim %s with function %s", shim_name, function)
+
 
 def shim_initial_settings(shim_name, settings_):
     pass
 
 def shim_settings_reloaded(shim_name, settings_json):
-    post_request("inbound/sett")
+    if shim_name not in state.script_tracking:
+        logger.warning("Discarding settings reload for unknown shim %s", shim_name)
+        return
+
+    sid = state.script_tracking[shim_name]["id"]
+    logger.debug("Sending updated settings for shim %s (plugin %s)", shim_name, sid)
+    post_request("inbound", {"plugin_id": sid, "type": 3, "data": json.loads(settings_json)})
 
 def shim_script_toggled(shim_name, state_):
     pass

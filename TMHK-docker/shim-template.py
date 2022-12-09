@@ -20,6 +20,8 @@ except:
 UI_CONFIG_FILE = os.path.join(os.path.dirname(__file__), "UI_Config.json")
 UI_SETTINGS_FILE = os.path.join(os.path.dirname(__file__), "shim-ui-settings.json")
 
+DEBUG_BUTTONS = ("__dock_reload",)
+
 delayed_settings_upload = None
 delayed_initial_state = None
 
@@ -47,7 +49,7 @@ def Init():
                 continue
 
             if item["type"] == "button":
-                add_button(name)
+                add_button(item["function"])
 
         base_settings = {name: x["value"] for name, x in config.items() if "value" in x}
         base_settings.update(settings)
@@ -57,7 +59,10 @@ def Init():
 def Tick():
     global delayed_settings_upload, delayed_initial_state, dock_commons
     if dock_commons is None:
-        dock_commons = __import__(DOCK_COMMONS_NAME)
+        try:
+            dock_commons = __import__(DOCK_COMMONS_NAME)
+        except:
+            return
 
     if delayed_settings_upload is not None:
         dock_commons.initial_settings(SHIM_NAME, delayed_settings_upload)
@@ -70,7 +75,7 @@ def Tick():
 def Execute(data):
     pass
 
-def SettingsReload(data):
+def ReloadSettings(data):
     dock_commons.settings_reloaded(SHIM_NAME, data)
 
 def ScriptToggled(state):

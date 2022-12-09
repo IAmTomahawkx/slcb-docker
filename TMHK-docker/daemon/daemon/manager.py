@@ -4,6 +4,7 @@ import asyncio
 import importlib
 import logging
 import os
+import sys
 import traceback
 import uuid
 from pathlib import Path
@@ -29,6 +30,8 @@ class PluginLoadFailed(ValueError):
         self.original_traceback = traceback
         super().__init__(self.message)
 
+class PreLoadFailure(PluginLoadFailed):
+    pass
 
 class PluginMeta:
     def __init__(self, cfg: Config, script_id: str | None):
@@ -55,9 +58,14 @@ class Plugin:
         self.meta: PluginMeta | None = None
         self._listeners: dict[str, list[Callable[..., Awaitable[None]]]] = {}
 
-    async def load(self, script_id: str | None) -> tuple[bool, str]:
+        self._is_loaded: bool = False
+
+    async def load(self, script_id: str | None) -> tuple[bool | Ellipsis, str]:
         try:
-            await self.try_load(script_id)
+            await self.load_meta(script_id)
+            await self.try_load()
+        except PreLoadFailure as e:
+            return ..., f"Could not identify the plugin for loading:\n{e.message}"
         except PluginLoadFailed as e:
             if self._listeners:
                 await self.eject_listeners()
@@ -67,6 +75,7 @@ class Plugin:
 
             return False, e.message
 
+        self._is_loaded = True
         return True, self.meta.script_id
 
     def add_listeners(self, listeners: dict[str, Callable[..., Awaitable[None]]]):
@@ -86,21 +95,21 @@ class Plugin:
             except ValueError:
                 continue
 
-    async def try_load(self, script_id: str | None):
+    async def load_meta(self, script_id: str | None) -> None:
         files = set(os.listdir(self.directory))
         if "plugin.json" not in files:
-            raise PluginLoadFailed(f"@{self.directory.name}", "directory does not contain a plugin.json file.")
+            raise PreLoadFailure(f"@{self.directory.name}", "directory does not contain a plugin.json file.")
 
         try:
             with (self.directory / "plugin.json").open() as f:
                 config = self.config = ujson.loads(f.read())
         except:
-            raise PluginLoadFailed(f"@{self.directory.name}", "unable to load plugin.json")
+            raise PreLoadFailure(f"@{self.directory.name}", "unable to load plugin.json")
 
         try:
             self.meta = PluginMeta(config, script_id)
         except KeyError as e:
-            raise PluginLoadFailed(f"@{self.directory.name}", f"plugin.json is missing key: {e.args[0]}")
+            raise PreLoadFailure(f"@{self.directory.name}", f"plugin.json is missing key: {e.args[0]}")
 
         if ".__dock_store" not in files and not self.meta.script_id:
             script_id = str(uuid.uuid4())
@@ -114,10 +123,14 @@ class Plugin:
                 self.meta.script_id = f.read()
 
         if "init.py" not in files:
-            raise PluginLoadFailed(self.meta.name, "no init.py file found")
+            raise PreLoadFailure(self.meta.name, "no init.py file found")
 
+    async def try_load(self):
         try:
-            module: PluginModule = importlib.import_module(f"plugins.{self.directory.name}.init")  # type: ignore
+            if self.module:
+                module: PluginModule = importlib.reload(self.module) # type: ignore
+            else:
+                module: PluginModule = importlib.import_module(f"plugins.{self.directory.name}.init")  # type: ignore
             self.module = module
         except BaseException as e:
             split = '  File "<frozen importlib._bootstrap>", line 241, in _call_with_frames_removed\n'
@@ -128,7 +141,7 @@ class Plugin:
             raise PluginLoadFailed(self.meta.name, "Failed to load module", "".join(trace))
 
         try:
-            module.init(self.interface)
+            await module.init(self.interface)
         except Exception as e:
             trace = traceback.format_exception(type(e), e, e.__traceback__)
             raise PluginLoadFailed(self.meta.name, "Encountered an error while calling init", "".join(trace))
@@ -138,6 +151,7 @@ class Plugin:
         self._listeners.clear()
 
     async def eject(self):
+        self._is_loaded = False
         await self.eject_listeners()
 
     async def call_error_listeners(self, event: str, error: Exception):
@@ -204,7 +218,12 @@ class PluginManager:
                 if plugin.enabled:
                     asyncio.create_task(self._execute_callback(plugin, payload))
 
-        sid = payload['script_id']
+            return
+
+        sid = payload.get('script_id')
+        if sid is None:
+            ...
+
         if sid not in self.plugins:
             logger.warning("Inbound payload referencing unknown plugin %s. Discarding", sid)
     async def handle_parse(self, payload: InboundBotPayload) -> str:
@@ -212,7 +231,7 @@ class PluginManager:
         if type_ is not PayloadTypeEnum.parse:
             raise TypeError(f"Payload of type {type_.name} ({type_.value}) passed to handle_parse") # type: ignore # pycharm sucks
 
-        sid: str = payload['script_id']
+        sid: str = payload['plugin_id']
         if sid not in self.plugins:
             logger.warning("Inbound parse payload referencing unknown plugin %s. Discarding", sid)
             raise ValueError("Unknown plugin id")
@@ -224,20 +243,48 @@ class PluginManager:
 
         return await plugin.call_parse_hook(data)
 
-    async def load_plugin(self, directory: str, script_id: str | None) -> tuple[bool, str]:
+    async def load_plugin(self, directory: str, script_id: str | None) -> tuple[bool, str | None, str]:
         pth = DIR / "plugins" / directory
         if not pth.exists():
-            return False, "The given directory does not exist"
+            return False, None, "The given directory does not exist"
 
         plug = Plugin(pth, self)
         ok, resp = await plug.load(script_id)
-        if ok:
+        if ok is not ...: # we want to attach the plugin to the dock if at all possible, as this allows the dev to reload it from the ui
             self.plugins[plug.meta.script_id] = plug
+        else:
+            ok = False
 
-        return ok, resp
+        try:
+            sid = plug.meta.script_id
+        except:
+            sid = None
 
-    async def unload_plugin(self, reload: bool):
-        ... # TODO
+        return ok, sid, resp
+
+    async def reload_plugin(self, script_id: str) -> tuple[bool, str]:
+        if script_id not in self.plugins:
+            return False, "Script is not loaded in the dock"
+
+        plug: Plugin = self.plugins[script_id]
+        if plug._is_loaded: # call cleanup hooks
+            await plug.eject()
+
+        try:
+            await plug.try_load()
+        except PluginLoadFailed as e:
+            if e.original_traceback:
+                return False, f"{e.message}\n{e.original_traceback}"
+
+            return False, e.message
+
+    async def unload_plugin(self, script_id: str):
+        if script_id not in self.plugins:
+            return False, "Script has not been loaded into the dock"
+
+        plug: Plugin = self.plugins[script_id]
+        if not plug._is_loaded:
+            return False, "Script is not actively loaded"
 
     async def evict_plugins(self):
         """

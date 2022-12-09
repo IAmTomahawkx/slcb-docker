@@ -41,7 +41,7 @@ class HTTPHandler:
         self.route_table.get("/authcheck")(self.route_ensure_auth)
         self.route_table.get("/outbound")(self.outbound)
         self.route_table.post("/inbound")(self.inbound)
-        self.route_table.get("/inbound/parse")(self.inbound_parse)
+        self.route_table.post("/inbound/parse")(self.inbound_parse)
         self.route_table.get("/inbound-ack")(self.inbound_ack)
         self.route_table.post("/inbound/load-plugin")(self.inbound_load_plugin)
         #self.route_table.get("/inbound/unload-script")(self.inbound_unload_script) # TODO
@@ -199,9 +199,8 @@ class HTTPHandler:
         if "Authorization" not in request.headers or request.headers["Authorization"] != self._auth:
             return web.json_response({"error": "missing authorization"}, status=401)
 
-        data: list[InboundBotPayload] = await request.json()
-        for msg in data:
-            self.loop.create_task(self.manager.handle_inbound(msg))
+        data: InboundBotPayload = await request.json()
+        self.loop.create_task(self.manager.handle_inbound(data))
 
         return web.Response(status=204)
 
@@ -238,11 +237,18 @@ class HTTPHandler:
             return web.json_response({"error": "missing authorization"}, status=401)
 
         data: ScriptLoadPayload = await request.json()
-        ok, resp = await self.manager.load_plugin(data['directory'], data['script_id'])
+        ok, sid, resp = await self.manager.load_plugin(data['directory'], data['plugin_id'])
         if ok:
-            return web.json_response({"id": resp}) # body confirms plugin id
+            return web.json_response({"id": resp})
 
-        return web.Response(status=203, body=resp) # body contains the error message
+        return web.json_response({"id": sid, "error": resp}, status=203)
+
+    async def inbound_reload_plugin(self, request: web.Request) -> web.Response:
+        if "Authorization" not in request.headers or request.headers["Authorization"] != self._auth:
+            return web.json_response({"error": "missing authorization"}, status=401)
+
+        data: ScriptLoadPayload = await request.json()
+
 
     async def put_request(self, payload: OutboundDataPayload, timeout: float = 5.0) -> Any:
         nonce = str(uuid.uuid4())

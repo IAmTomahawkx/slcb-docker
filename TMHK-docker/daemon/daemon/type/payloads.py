@@ -32,7 +32,7 @@ class GenericInboundBotPayload(TypedDict):
     data: Execute
 
 class InboundBotPayload(TypedDict):
-    script_id: str
+    plugin_id: str
     type: PayloadType
     data: Execute | Reload | Parse | StateToggle
 
