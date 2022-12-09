@@ -26,4 +26,5 @@ Here are a list of things that I will be implementing. Checked boxes mean it is 
 - [x] Base daemon with poll+response capabilities
 - [ ] Create shim scripts in the bot for active representation of each plugin (including UI)
 - [ ] Create plugin interface which retains the functionality of the Chatbot interface, while also introducing modern practices
-- [ ] ability to use the `Parse` method
+- [ ] Ability to use the `Parse` method
+- [ ] Handle plugin updates
