@@ -1,6 +1,6 @@
 # these functions will get replaced by the DockMain script
 
-def button(shim_name, func_name):
+def button(shim_name, func_name, ui_name):
     pass
 
 def initial_settings(shim_name, settings):

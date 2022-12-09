@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 
     from .type.payloads import GenericInboundBotPayload, InboundBotPayload, Parse as ParsePayload
     from .type.plugin import Config, PluginModule, UIConfig
+    from .interface import Injector
 
 DIR = Path(".")
 logger = logging.getLogger("dock.pluginmanager")
@@ -56,7 +57,7 @@ class Plugin:
         self.enabled: bool = False # set to false by default
 
         self.meta: PluginMeta | None = None
-        self._listeners: dict[str, list[Callable[..., Awaitable[None]]]] = {}
+        self._listeners: dict[str, list[tuple[Injector | None, Callable[..., Awaitable[None]]]]] = {}
 
         self._is_loaded: bool = False
 
@@ -78,12 +79,12 @@ class Plugin:
         self._is_loaded = True
         return True, self.meta.script_id
 
-    def add_listeners(self, listeners: dict[str, Callable[..., Awaitable[None]]]):
+    def add_listeners(self, injector: Injector, listeners: dict[str, Callable[..., Awaitable[None]]]):
         for name, cb in listeners.items():
             if name not in self._listeners:
                 self._listeners[name] = []
 
-            self._listeners[name].append(cb)
+            self._listeners[name].append((injector, cb))
 
     def remove_listeners(self, listeners: dict[str, Callable[..., Awaitable[None]]]):
         for name, cb in listeners.items():
@@ -158,10 +159,13 @@ class Plugin:
         if "error" not in self._listeners: # edge case
             return
 
-        caller = self._listeners["error"][0]
+        cls, caller = self._listeners["error"][0]
         try:
             try:
-                response = await caller(event, error)
+                if cls:
+                    response = await caller(cls, event, error)
+                else:
+                    response = await caller(event, error)
             except Exception as e:
                 raise e from error
         except Exception as e: # we want to catch the double traceback to pass to the user
@@ -170,16 +174,16 @@ class Plugin:
         if len(self._listeners["error"]) > 1:
             response += "\n\nMultiple error handlers registered. Only one will be used, and this message will not go away until there is only one"
 
-        await self._manager._http.notify_error(response)
+        self._manager._http.notify_error(self.meta.script_id, response)
 
     async def call_listeners(self, event: str, data: Any = MISSING):
         if event in self._listeners:
-            for caller in self._listeners[event]:
+            for cls, caller in self._listeners[event]:
                 try:
                     if data is not MISSING:
-                        await caller(data)
+                        await caller(cls, data)
                     else:
-                        await caller()
+                        await caller(cls)
                 except Exception as e:
                     asyncio.create_task(self.call_error_listeners(event, e))
 
@@ -243,13 +247,32 @@ class PluginManager:
 
         return await plugin.call_parse_hook(data)
 
-    async def load_plugin(self, directory: str, script_id: str | None) -> tuple[bool, str | None, str]:
+    async def handle_button(self, payload: InboundBotPayload) -> None:
+        type_ = try_enum(PayloadTypeEnum, payload['type'])
+        if type_ is not PayloadTypeEnum.button:
+            raise TypeError(
+                f"Payload of type {type_.name} ({type_.value}) passed to handle_button")  # type: ignore # pycharm sucks
+
+        sid: str = payload['plugin_id']
+        if sid not in self.plugins:
+            logger.warning("Inbound button payload referencing unknown plugin %s. Discarding", sid)
+            raise ValueError("Unknown plugin id")
+
+        plugin: Plugin = self.plugins[sid]
+
+        logger.debug("Calling handlers for button: %s", payload["data"]["element"])
+        await plugin.call_listeners(f"button", payload["data"]["element"])
+
+    async def load_plugin(self, directory: str, plugin_id: str | None) -> tuple[bool, str | None, str]:
+        if plugin_id and plugin_id in self.plugins:
+            return False, None, "Plugin is already loaded"
+
         pth = DIR / "plugins" / directory
         if not pth.exists():
             return False, None, "The given directory does not exist"
 
         plug = Plugin(pth, self)
-        ok, resp = await plug.load(script_id)
+        ok, resp = await plug.load(plugin_id)
         if ok is not ...: # we want to attach the plugin to the dock if at all possible, as this allows the dev to reload it from the ui
             self.plugins[plug.meta.script_id] = plug
         else:

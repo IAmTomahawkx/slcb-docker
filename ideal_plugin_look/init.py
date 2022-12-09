@@ -37,3 +37,7 @@ class MyInjector(Injector):
     @Injector.listen("enable")
     async def script_enabled(self):
         pass
+
+    @Injector.listen("button")
+    async def ui_button_clicked(self, ui_element_name: str):
+        pass

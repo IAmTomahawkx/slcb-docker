@@ -359,7 +359,21 @@ def poll_daemon(t):
 
     response = []
     for event in resp:
+        logger.debug("event %s", event)
         data = event['data']
+        if data["type"] == "error":
+            did_log = False
+            for plugin_data in state.script_tracking.values():
+                if data["plugin_id"] == plugin_data["id"]:
+                    did_log = True
+                    Parent.Log(plugin_data["@meta"]["name"], data["message"]) # type: ignore
+                    break
+
+            if not did_log:
+                logger.warning("Error log received for unknown plugin %s: %s", data["id"], data["message"])
+
+            continue
+
         attr = getattr(Parent, data["type"], None)
         if not attr:
             response.append(
@@ -500,7 +514,15 @@ def atinit_search_scripts():
 
     for d in dirs:
         if d in data:
-            output[d] = data[d]
+            output[d] = metadata = data[d]
+            response = post_request("inbound/load-plugin", {"plugin_id": metadata["id"], "directory": metadata["directory"]})
+            if "error" in response:
+                metadata["did_fail_load"] = True
+                logger.warning("Failed to load plugin %s because: %s", metadata["@meta"]["name"], response["error"])
+            else:
+                metadata["did_fail_load"] = False
+                logger.debug("Loaded previously loaded plugin %s (id: %s)", metadata["@meta"]["name"], metadata["id"])
+
             continue
 
         else:
@@ -512,7 +534,7 @@ def atinit_search_scripts():
             if "plugin.json" in dir_contents: # this is a new script to be loaded
                 logger.debug("Found new directory '%s' with plugin.json, attempting to onboard", d)
                 try:
-                    metadata, shim_name = onboard_script(d, script_dir)
+                    metadata, shim_name, directory = onboard_script(d, script_dir)
                 except Exception as e:
                     logger.warning("Could not onboard directory %s: %s", d, e.message)
                     continue
@@ -529,11 +551,12 @@ def atinit_search_scripts():
                     "onboarded_at": int(time.time()),
                     "shim_name": shim_name,
                     "id": None,
+                    "directory": directory,
                     "did_fail_load": False,
                     "plugin_has_components": "config" in metadata and len(metadata["config"]) > 0
                 }
 
-                response = post_request("inbound/load-plugin", {"plugin_id": None, "directory": os.path.join(DAEMON_PATH, "plugins", d)})
+                response = post_request("inbound/load-plugin", {"plugin_id": None, "directory": directory})
                 if "id" in response:
                     processed_meta["id"] = response["id"]
 
@@ -561,7 +584,7 @@ def onboard_script(dirname, dir_path):
 
     shutil.move(dir_path, path)
     shim_name = create_shim(metadata)
-    return metadata, shim_name
+    return metadata, shim_name, path
 
 
 # XXX shim management
@@ -621,9 +644,25 @@ def write_shim_config(metadata, name):
     with codecs.open(ui_pth, mode="w", encoding="utf-8") as f:
         json.dump(conf, f)
 
-def shim_button_pressed(shim_name, function):
-    logger.debug("Received button press from shim %s with function %s", shim_name, function)
+def shim_button_pressed(shim_name, function, ui_name):
+    logger.debug("Received button press from shim %s with function %s (ui element %s)", shim_name, function, ui_name)
 
+    if shim_name not in state.script_tracking:
+        logger.warning("Discarding button press for unknown shim %s", shim_name)
+        return
+
+    sid = state.script_tracking[shim_name]["id"]
+    if function == "__dock_reload":
+        resp = post_request("inbound/reload-plugin", {"plugin_id": sid})
+        if resp is None: # 204 means success
+            msgbox("Successfully reloaded plugin %s (%s)" % (sid, shim_name))
+        else:
+            msgbox("Failed to reload plugin %s:\n%s" % (sid, resp["error"]))
+
+    else:
+        resp = post_request("inbound/button", {"plugin_id": sid, "type": 4, "data": {"element": ui_name}})
+        if resp is not None:
+            logger.error("Failed to handle button press: %s", resp)
 
 def shim_initial_settings(shim_name, settings_):
     pass

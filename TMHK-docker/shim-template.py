@@ -25,11 +25,15 @@ DEBUG_BUTTONS = ("__dock_reload",)
 delayed_settings_upload = None
 delayed_initial_state = None
 
-def button_pressed_internal(name):
-    dock_commons.button(SHIM_NAME, name)
+def button_pressed_internal(function, name):
+    global dock_commons
+    if dock_commons is None:
+        dock_commons = __import__(DOCK_COMMONS_NAME)
 
-def add_button(name):
-    globals()[name] = lambda: button_pressed_internal(name)
+    dock_commons.button(SHIM_NAME, function, name)
+
+def add_button(function, name):
+    globals()[function] = lambda: button_pressed_internal(function, name)
 
 def Init():
     global delayed_settings_upload
@@ -49,7 +53,7 @@ def Init():
                 continue
 
             if item["type"] == "button":
-                add_button(item["function"])
+                add_button(item["function"], name)
 
         base_settings = {name: x["value"] for name, x in config.items() if "value" in x}
         base_settings.update(settings)
