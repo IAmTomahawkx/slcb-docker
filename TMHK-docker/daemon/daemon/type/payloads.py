@@ -1,7 +1,7 @@
 from typing import Any, Literal, TypedDict
 
 ExecuteSources = Literal[0, 1, 2, 3, 4]  # twitch, discord, youtube, twitchDM, discordDM
-PayloadType = Literal[0, 1, 2, 3, 4] # execute, parse, state, reload, button
+PayloadType = Literal[0, 1, 2, 3, 4, 5, 6] # execute, parse, state, reload, button, initial-settings, initial-state
 Reload = dict[str, str | int | bool]
 
 

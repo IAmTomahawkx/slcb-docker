@@ -664,8 +664,14 @@ def shim_button_pressed(shim_name, function, ui_name):
         if resp is not None:
             logger.error("Failed to handle button press: %s", resp)
 
-def shim_initial_settings(shim_name, settings_):
-    pass
+def shim_initial_settings(shim_name, settings_data):
+    if shim_name not in state.script_tracking:
+        logger.warning("Discarding initial settings for unknown shim %s", shim_name)
+        return
+
+    sid = state.script_tracking[shim_name]["id"]
+    logger.debug("Sending initial settings for shim %s (plugin %s)", shim_name, sid)
+    post_request("inbound", {"plugin_id": sid, "type": 5, "data": settings_data})
 
 def shim_settings_reloaded(shim_name, settings_json):
     if shim_name not in state.script_tracking:
@@ -677,7 +683,19 @@ def shim_settings_reloaded(shim_name, settings_json):
     post_request("inbound", {"plugin_id": sid, "type": 3, "data": json.loads(settings_json)})
 
 def shim_script_toggled(shim_name, state_):
-    pass
+    if shim_name not in state.script_tracking:
+        logger.warning("Discarding script state toggle for unknown shim %s", shim_name)
+        return
+
+    sid = state.script_tracking[shim_name]["id"]
+    logger.debug("Sending updated toggle for shim %s (plugin %s), state: %s", shim_name, sid, state_)
+    post_request("inbound", {"plugin_id": sid, "type": 2, "data": state_})
 
 def shim_initial_state(shim_name, state_):
-    pass
+    if shim_name not in state.script_tracking:
+        logger.warning("Discarding initial script state for unknown shim %s", shim_name)
+        return
+
+    sid = state.script_tracking[shim_name]["id"]
+    logger.debug("Sending initial script state for shim %s (plugin %s), state: %s", shim_name, sid, state_)
+    post_request("inbound", {"plugin_id": sid, "type": 6, "data": state_})
