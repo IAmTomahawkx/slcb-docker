@@ -64,6 +64,11 @@ class Plugin:
     async def load(self, script_id: str | None) -> tuple[bool | Ellipsis, str]:
         try:
             await self.load_meta(script_id)
+            if self.directory.name != self.meta.script_id:
+                new = self.directory.parent / self.meta.script_id
+                self.directory.rename(new)
+                self.directory = new
+
             await self.try_load()
         except PreLoadFailure as e:
             return ..., f"Could not identify the plugin for loading:\n{e.message}"
@@ -113,7 +118,7 @@ class Plugin:
             raise PreLoadFailure(f"@{self.directory.name}", f"plugin.json is missing key: {e.args[0]}")
 
         if ".__dock_store" not in files and not self.meta.script_id:
-            script_id = str(uuid.uuid4())
+            script_id = str(uuid.uuid4()).replace("-", "")
             with (self.directory / ".__dock_store").open(mode="w") as f:
                 f.write(script_id)
 
