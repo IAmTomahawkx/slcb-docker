@@ -1,13 +1,10 @@
 from __future__ import annotations
 
 import traceback
-from typing import TYPE_CHECKING
 from daemon.common import RawMessage, Message, ParseData
+from daemon.interface import Injector, Interface
 
-if TYPE_CHECKING:
-    from daemon.interface import Injector, Interface
-
-async def setup(parent: Interface) -> None:
+async def init(parent: Interface) -> None:
     await parent.load_injector(MyInjector(parent))
 
 class MyInjector(Injector):
@@ -39,4 +36,8 @@ class MyInjector(Injector):
 
     @Injector.listen("enable")
     async def script_enabled(self):
+        pass
+
+    @Injector.listen("button")
+    async def ui_button_clicked(self, ui_element_name: str):
         pass

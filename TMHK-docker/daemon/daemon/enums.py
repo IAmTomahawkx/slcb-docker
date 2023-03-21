@@ -185,6 +185,9 @@ class PayloadTypeEnum(Enum):
     parse = 1
     state = 2
     reload = 3
+    button = 4
+    initial_settings_state = 5
+    initial_state = 6
 
 class AuthState(Enum):
     WaitingForClient = 0

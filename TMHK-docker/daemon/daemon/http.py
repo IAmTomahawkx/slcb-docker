@@ -12,7 +12,7 @@ from .enums import AuthState
 
 if TYPE_CHECKING:
     from .manager import PluginManager
-    from .type.payloads import InboundBotPayload, InboundResponsePayload, ScriptLoadPayload, OutboundDataPayload
+    from .type.payloads import InboundBotPayload, InboundResponsePayload, ScriptLoadPayload, ScriptUnloadPayload, OutboundDataPayload
 
 logger = logging.getLogger("dock.http")
 access_log = logging.getLogger("dock.access")
@@ -40,9 +40,11 @@ class HTTPHandler:
         self.route_table.get("/authcheck")(self.route_ensure_auth)
         self.route_table.get("/outbound")(self.outbound)
         self.route_table.post("/inbound")(self.inbound)
-        self.route_table.get("/inbound/parse")(self.inbound_parse)
+        self.route_table.post("/inbound/parse")(self.inbound_parse)
+        self.route_table.post("/inbound/button")(self.inbound_button)
         self.route_table.get("/inbound-ack")(self.inbound_ack)
-        self.route_table.get("/inbound/load-script")(self.inbound_load_script)
+        self.route_table.post("/inbound/load-plugin")(self.inbound_load_plugin)
+        self.route_table.post("/inbound/reload-plugin")(self.inbound_reload_plugin)
         #self.route_table.get("/inbound/unload-script")(self.inbound_unload_script) # TODO
 
     @property
@@ -198,9 +200,8 @@ class HTTPHandler:
         if "Authorization" not in request.headers or request.headers["Authorization"] != self._auth:
             return web.json_response({"error": "missing authorization"}, status=401)
 
-        data: list[InboundBotPayload] = await request.json()
-        for msg in data:
-            self.loop.create_task(self.manager.handle_inbound(msg))
+        data: InboundBotPayload = await request.json()
+        self.loop.create_task(self.manager.handle_inbound(data))
 
         return web.Response(status=204)
 
@@ -217,6 +218,14 @@ class HTTPHandler:
 
         return web.Response(status=200, content_type="text/plain", body=resp)
 
+    async def inbound_button(self, request: web.Request) -> web.Response:
+        if "Authorization" not in request.headers or request.headers["Authorization"] != self._auth:
+            return web.json_response({"error": "missing authorization"}, status=401)
+
+        payload: InboundBotPayload = await request.json()
+        await self.manager.handle_button(payload)
+        return web.Response(status=204)
+
     async def inbound_ack(self, request: web.Request) -> web.Response:
         if "Authorization" not in request.headers or request.headers["Authorization"] != self._auth:
             return web.json_response({"error": "missing authorization"}, status=401)
@@ -232,16 +241,27 @@ class HTTPHandler:
 
         return web.Response(status=204)
 
-    async def inbound_load_script(self, request: web.Request) -> web.Response:
+    async def inbound_load_plugin(self, request: web.Request) -> web.Response:
         if "Authorization" not in request.headers or request.headers["Authorization"] != self._auth:
             return web.json_response({"error": "missing authorization"}, status=401)
 
         data: ScriptLoadPayload = await request.json()
-        ok, resp = await self.manager.load_plugin(data['directory'], data['script_id'])
+        ok, sid, resp = await self.manager.load_plugin(data['directory'], data['plugin_id'])
         if ok:
-            return web.Response(status=200, body=resp) # body confirms plugin id
+            return web.json_response({"id": resp})
 
-        return web.Response(status=600, body=resp) # body contains the error message
+        return web.json_response({"id": sid, "error": resp}, status=203)
+
+    async def inbound_reload_plugin(self, request: web.Request) -> web.Response:
+        if "Authorization" not in request.headers or request.headers["Authorization"] != self._auth:
+            return web.json_response({"error": "missing authorization"}, status=401)
+
+        data: ScriptUnloadPayload = await request.json()
+        ok, reason = await self.manager.reload_plugin(data["plugin_id"])
+        if ok:
+            return web.Response(status=204)
+
+        return web.json_response({"error": reason}, status=203)
 
     async def put_request(self, payload: OutboundDataPayload, timeout: float = 5.0) -> Any:
         nonce = str(uuid.uuid4())
@@ -258,8 +278,8 @@ class HTTPHandler:
 
         return response
 
-    def notify_error(self, msg: str):
-        self.waiting_for_poll.append({"nonce": None, "data": {"type": "error", "message": msg}})
+    def notify_error(self, plugin_id: str, msg: str):
+        self.waiting_for_poll.append({"nonce": None, "data": {"type": "error", "plugin_id": plugin_id, "message": msg}})
 
 
     # --- API STUFF

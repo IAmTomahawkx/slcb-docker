@@ -48,7 +48,7 @@ class Config(TypedDict):
     version: str
 
     dock_version: NotRequired[str]
-    ui_config: NotRequired[UIConfig]
+    config: NotRequired[UIConfig]
 
 
 class PluginModule(ModuleType):

@@ -24,5 +24,8 @@ That being said, you can install this manually by cloning the repository and cop
 Here are a list of things that I will be implementing. Checked boxes mean it is currently implemented
 
 - [x] Base daemon with poll+response capabilities
-- [ ] Create shim scripts in the bot for active representation of each plugin (including UI)
+- [x] Create shim scripts in the bot for active representation of each plugin (including UI)
 - [ ] Create plugin interface which retains the functionality of the Chatbot interface, while also introducing modern practices
+- [ ] Ability to use the `Parse` method
+- [ ] Fully implement core of the Parent method (excluding cooldowns, these should be implemented separately inside the dock)
+- [ ] Handle plugin updates

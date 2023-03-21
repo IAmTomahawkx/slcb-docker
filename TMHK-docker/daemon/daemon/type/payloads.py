@@ -1,7 +1,7 @@
 from typing import Any, Literal, TypedDict
 
 ExecuteSources = Literal[0, 1, 2, 3, 4]  # twitch, discord, youtube, twitchDM, discordDM
-PayloadType = Literal[0, 1, 2, 3] # execute, parse, state, reload
+PayloadType = Literal[0, 1, 2, 3, 4, 5, 6] # execute, parse, state, reload, button, initial-settings, initial-state
 Reload = dict[str, str | int | bool]
 
 
@@ -13,7 +13,6 @@ class Execute(TypedDict):
     is_raw: bool
     is_chat: bool
     source: ExecuteSources
-    service_type: int  # seriously have no clue what this is
 
 
 class Parse(TypedDict):
@@ -28,14 +27,17 @@ class Parse(TypedDict):
 class StateToggle(TypedDict):
     state: bool
 
+class ButtonClick(TypedDict):
+    element: str
+
 class GenericInboundBotPayload(TypedDict):
     type: Literal[0]
     data: Execute
 
 class InboundBotPayload(TypedDict):
-    script_id: str
+    plugin_id: str
     type: PayloadType
-    data: Execute | Reload | Parse | StateToggle
+    data: Execute | Reload | Parse | StateToggle | ButtonClick
 
 
 class InboundResponsePayload(TypedDict):
@@ -51,9 +53,8 @@ class OutboundPayload(TypedDict):
     data: OutboundDataPayload
 
 class ScriptLoadPayload(TypedDict):
-    script_id: str | None
+    plugin_id: str | None
     directory: str
 
 class ScriptUnloadPayload(TypedDict):
-    script_id: str
-    reload: bool
+    plugin_id: str

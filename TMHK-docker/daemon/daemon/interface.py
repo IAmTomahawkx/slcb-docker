@@ -128,18 +128,17 @@ class Injector:
         if "error" not in cls.__inject_listeners__:
             cls.__inject_listeners__["error"] = cls.on_error # TODO: does this pass self?
 
-        return super().__new__(cls, *args, **kwargs)
+        return super().__new__(cls)
 
     async def _setup(self, plugin: Plugin) -> None:
-        plugin.add_listeners(self.__inject_listeners__)
+        plugin.add_listeners(self, self.__inject_listeners__)
 
     async def _teardown(self, plugin: Plugin) -> None:
         plugin.remove_listeners(self.__inject_listeners__)
 
-    @staticmethod
-    def listen(name: str) -> Callable[[Callable[..., None]], Callable[..., None]]:
+    @classmethod
+    def listen(cls, name: str) -> Callable[[Callable[..., None]], Callable[..., None]]:
         def wrapped(meth: Callable[..., None]) -> Callable[..., None]:
-            cls = meth.__class__
             if not hasattr(cls, "__inject_listeners__"):
                 cls.__inject_listeners__ = {}
 

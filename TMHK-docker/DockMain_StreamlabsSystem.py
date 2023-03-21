@@ -1,11 +1,16 @@
 import codecs
 import json
 import os
+import shutil
 import sys
 import time
 import random as _random
 import logging
 import traceback
+import uuid
+import clr
+
+clr.AddReference("System.Windows.Forms")
 from System.Windows.Forms.MessageBox import Show
 
 random = _random.WichmannHill()  # noqa
@@ -24,12 +29,17 @@ Website = None
 msgbox = lambda obj: Show(str(obj))
 
 DIR_PATH = os.path.abspath(os.path.dirname(__file__))
+DATA_DIR = os.path.join(DIR_PATH, "data")
 BOT_SETTINGS_PATH = os.path.join(DIR_PATH, "settings.json")
-STAMP_PATH = os.path.join(DIR_PATH, "client.lock")
+STAMP_PATH = os.path.join(DATA_DIR, "client.lock")
 DAEMON_PATH = os.path.join(DIR_PATH, "daemon")
 DAEMON_LOCKFILE = os.path.join(DAEMON_PATH, "daemon.lock")
-RESTART_FILE = os.path.join(DIR_PATH, "restart.lock")
-LOG_FILE = os.path.join(DIR_PATH, "script.log")
+RESTART_FILE = os.path.join(DATA_DIR, "restart.lock")
+LOG_FILE = os.path.join(DATA_DIR, "script.log")
+SCRIPT_TRACKER_FILE = os.path.join(DATA_DIR, "script-list.json")
+SHIM_TEMPLATE_FILE = os.path.join(DIR_PATH, "shim-template.py")
+SCRIPTS_DIR = os.path.dirname(DIR_PATH)
+
 
 if os.path.exists(BOT_SETTINGS_PATH):
     with codecs.open(BOT_SETTINGS_PATH, encoding="utf-8-sig") as f:
@@ -40,6 +50,9 @@ else:
         "is_debug": True,
         "310_executable": "%USERPROFILE%\AppData\Local\Programs\Python\Python310\Python.exe"
     }
+
+if not os.path.exists(DATA_DIR):
+    os.mkdir(DATA_DIR)
 
 if os.path.exists(STAMP_PATH):
     os.remove(STAMP_PATH)
@@ -105,7 +118,7 @@ class BufferedStreamHandler(logging.StreamHandler):
 
     def emit(self, record):
         try:
-            if settings["is_debug"] or record.levelno > logging.DEBUG:
+            if True:#settings["is_debug"] or record.levelno > logging.DEBUG:
                 msg = self.bot_formatter.format(record)
                 Parent.Log(record.name, msg)
         except NameError:
@@ -166,6 +179,7 @@ class _State(object):
         self.auth = None
         self.killcode = None
         self.process = None
+        self.script_tracking = {}
 
         if os.path.exists(RESTART_FILE):
             with codecs.open(RESTART_FILE, encoding="utf-8") as f:
@@ -256,6 +270,7 @@ def _generate_auth():
 
 def _daemon_startup():
     state.auth = _generate_auth()
+    response = None
     for i in range(5):
         response = post_request("auth", {"code": state.auth})
         if isinstance(response, dict) and "challenge" in response:
@@ -344,7 +359,21 @@ def poll_daemon(t):
 
     response = []
     for event in resp:
+        logger.debug("event %s", event)
         data = event['data']
+        if data["type"] == "error":
+            did_log = False
+            for plugin_data in state.script_tracking.values():
+                if data["plugin_id"] == plugin_data["id"]:
+                    did_log = True
+                    Parent.Log(plugin_data["@meta"]["name"], data["message"]) # type: ignore
+                    break
+
+            if not did_log:
+                logger.warning("Error log received for unknown plugin %s: %s", data["id"], data["message"])
+
+            continue
+
         attr = getattr(Parent, data["type"], None)
         if not attr:
             response.append(
@@ -356,21 +385,6 @@ def poll_daemon(t):
         post_request("inbound", {"response": response})
 
     state.last_poll = t
-
-def graceful_kill_daemon():
-    # called from the ui tab
-    logger.info("Received UI order to shut down daemon (graceful)")
-    _kill_daemon()
-
-def ungraceful_kill_daemon():
-    # called from ui tab
-    logger.info("Received UI order to shut down daemon (ungraceful)")
-    _kill_daemon(False)
-
-def _kill_daemon(graceful=True):
-    resp = get_request("kill?code=%s&graceful=%i" % (state.killcode, int(graceful)))
-    if resp is not None:
-        msgbox("Failed to kill the dock. Consider doing it from the process manager. (dock said: %s)" % str(resp))
 
 # XXX serializing
 
@@ -395,8 +409,7 @@ def serialize_data_payload(data):
         "is_chat": data.IsChatMessage(),
         "raw_data": data.RawData,
         "is_raw": data.IsRawData(),
-        "source": source,
-        "service_type": data.ServiceType
+        "source": source
     }
 
 
@@ -418,6 +431,9 @@ def Init():
     else:
         start_daemon()
 
+    init_commons()
+    atinit_search_scripts()
+
 def Tick():
     now = int(time.time())
     if now - state.last_stamp > 30:
@@ -427,7 +443,7 @@ def Tick():
         poll_daemon(now)
 
 def Execute(data):
-    post_request("inbound/parse", {"type": 0, "data": serialize_data_payload(data)})
+    post_request("inbound", {"type": 0, "data": serialize_data_payload(data)})
 
 def Unload():
     logger.info("Received UNLOAD from bot")
@@ -454,3 +470,232 @@ def ScriptToggled(script_state):
                 start_daemon()
             else:
                 logger.info("Successful authentication after script toggle")
+
+def ReloadSettings(data):
+    data = json.loads(data)
+    settings.update(data)
+
+# XXX UI buttons
+
+def graceful_kill_daemon():
+    # called from the ui tab
+    logger.info("Received UI order to shut down daemon (graceful)")
+    _kill_daemon()
+
+def ungraceful_kill_daemon():
+    # called from ui tab
+    logger.info("Received UI order to shut down daemon (ungraceful)")
+    _kill_daemon(False)
+
+def _kill_daemon(graceful=True):
+    resp = get_request("kill?code=%s&graceful=%i" % (state.killcode, int(graceful)))
+    if resp is not None:
+        msgbox("Failed to kill the dock. Consider doing it from the process manager. (dock said: %s)" % str(resp))
+
+
+# XXX script tracking
+
+def atinit_search_scripts():
+    did_onboard = False
+
+    scripts_dir = os.path.dirname(DIR_PATH)
+    dirs = set(os.listdir(scripts_dir))
+
+    if os.path.exists(SCRIPT_TRACKER_FILE):
+        with codecs.open(SCRIPT_TRACKER_FILE, encoding="utf-8") as f:
+            try:
+                data = json.load(f)
+            except:
+                data = {}
+    else:
+        data = {}
+
+    output = {}
+
+    for d in dirs:
+        if d in data:
+            output[d] = metadata = data[d]
+            response = post_request("inbound/load-plugin", {"plugin_id": metadata["id"], "directory": metadata["directory"]})
+            if "error" in response:
+                metadata["did_fail_load"] = True
+                logger.warning("Failed to load plugin %s because: %s", metadata["@meta"]["name"], response["error"])
+            else:
+                metadata["did_fail_load"] = False
+                logger.debug("Loaded previously loaded plugin %s (id: %s)", metadata["@meta"]["name"], metadata["id"])
+
+            continue
+
+        else:
+            script_dir = os.path.join(scripts_dir, d)
+            try:
+                dir_contents = os.listdir(script_dir)
+            except WindowsError:
+                continue # not a directory
+            if "plugin.json" in dir_contents: # this is a new script to be loaded
+                logger.debug("Found new directory '%s' with plugin.json, attempting to onboard", d)
+                try:
+                    metadata, shim_name, directory = onboard_script(d, script_dir)
+                except Exception as e:
+                    logger.warning("Could not onboard directory %s: %s", d, e.message)
+                    continue
+
+                did_onboard = True
+                output[shim_name] = processed_meta = {
+                    "@meta": {
+                        "name": metadata["name"],
+                        "author": metadata["author"],
+                        "version": metadata["version"]
+                    },
+                    "enable_debug": metadata["debug"],
+                    "protected_upgrade_directories": metadata["protected_dirs"],
+                    "onboarded_at": int(time.time()),
+                    "shim_name": shim_name,
+                    "id": None,
+                    "directory": directory,
+                    "did_fail_load": False,
+                    "plugin_has_components": "config" in metadata and len(metadata["config"]) > 0
+                }
+
+                response = post_request("inbound/load-plugin", {"plugin_id": None, "directory": directory})
+                if "id" in response:
+                    processed_meta["id"] = response["id"]
+
+                if "error" in response:
+                    processed_meta["did_fail_load"] = True
+                    logger.warning("Failed to load plugin %s because: %s", metadata["name"], response["error"])
+
+
+    with codecs.open(SCRIPT_TRACKER_FILE, mode="w", encoding="utf-8") as f:
+        json.dump(output, f)
+
+    state.script_tracking = output
+
+    if did_onboard:
+        msgbox("It seems you've imported a new script that uses the dock. Please reload your scripts tab again to complete the import")
+
+def onboard_script(dirname, dir_path):
+    with codecs.open(os.path.join(dir_path, "plugin.json"), encoding="utf-8") as f:
+        metadata = json.load(f)
+
+    path = os.path.join(DAEMON_PATH, "plugins", dirname)
+    if os.path.exists(path):
+        # TODO: manage plugin updates, applying protected_dirs metadata
+        raise RuntimeError("TODO")
+
+    shutil.move(dir_path, path)
+    shim_name = create_shim(metadata)
+    return metadata, shim_name, path
+
+
+# XXX shim management
+
+SHIM_DEBUG_OPTIONS = {
+    "@dock/debug-reload": {
+        "type": "button",
+        "label": "Reload plugin",
+        "tooltip": "",
+        "function": "__dock_reload",
+        "wsevent": "",
+        "group": "Dock Debug"
+    }
+}
+
+def init_commons():
+    sys.path.append(os.path.join(DIR_PATH, "common"))
+    commons = __import__("dock_common")
+    commons.button = shim_button_pressed
+    commons.initial_settings = shim_initial_settings
+    commons.settings_reloaded = shim_settings_reloaded
+    commons.script_toggled = shim_script_toggled
+    commons.initial_state = shim_initial_state
+
+def create_shim(metadata):
+    name = "dockmanaged@" + str(uuid.uuid4())[:8]
+    with codecs.open(SHIM_TEMPLATE_FILE, encoding="utf-8") as f:
+        shim = f.read()
+
+    shim = shim\
+        .replace("@name", metadata["name"])\
+        .replace("@description", metadata["description"])\
+        .replace("@author", metadata["author"])\
+        .replace("@version", metadata["version"])\
+        .replace("@shim_name", name)\
+        .replace("@dock_common_module", "dock_common")
+
+    os.mkdir(os.path.join(SCRIPTS_DIR, name))
+
+    shim_pth = os.path.join(SCRIPTS_DIR, name, "DockShim_StreamlabsSystem.py")
+    with codecs.open(shim_pth, mode="w", encoding="utf-8") as f:
+        f.write(shim)
+
+    if "config" in metadata and metadata["config"]:
+        write_shim_config(metadata, name)
+
+    return name
+
+def write_shim_config(metadata, name):
+    ui_pth = os.path.join(SCRIPTS_DIR, name, "UI_Config.json")
+    conf = {"output_file": "shim-ui-settings.json"}
+    conf.update(metadata["config"])
+
+    if metadata["debug"]:
+        conf.update(SHIM_DEBUG_OPTIONS)
+
+    with codecs.open(ui_pth, mode="w", encoding="utf-8") as f:
+        json.dump(conf, f)
+
+def shim_button_pressed(shim_name, function, ui_name):
+    logger.debug("Received button press from shim %s with function %s (ui element %s)", shim_name, function, ui_name)
+
+    if shim_name not in state.script_tracking:
+        logger.warning("Discarding button press for unknown shim %s", shim_name)
+        return
+
+    sid = state.script_tracking[shim_name]["id"]
+    if function == "__dock_reload":
+        resp = post_request("inbound/reload-plugin", {"plugin_id": sid})
+        if resp is None: # 204 means success
+            msgbox("Successfully reloaded plugin %s (%s)" % (sid, shim_name))
+        else:
+            msgbox("Failed to reload plugin %s:\n%s" % (sid, resp["error"]))
+
+    else:
+        resp = post_request("inbound/button", {"plugin_id": sid, "type": 4, "data": {"element": ui_name}})
+        if resp is not None:
+            logger.error("Failed to handle button press: %s", resp)
+
+def shim_initial_settings(shim_name, settings_data):
+    if shim_name not in state.script_tracking:
+        logger.warning("Discarding initial settings for unknown shim %s", shim_name)
+        return
+
+    sid = state.script_tracking[shim_name]["id"]
+    logger.debug("Sending initial settings for shim %s (plugin %s)", shim_name, sid)
+    post_request("inbound", {"plugin_id": sid, "type": 5, "data": settings_data})
+
+def shim_settings_reloaded(shim_name, settings_json):
+    if shim_name not in state.script_tracking:
+        logger.warning("Discarding settings reload for unknown shim %s", shim_name)
+        return
+
+    sid = state.script_tracking[shim_name]["id"]
+    logger.debug("Sending updated settings for shim %s (plugin %s)", shim_name, sid)
+    post_request("inbound", {"plugin_id": sid, "type": 3, "data": json.loads(settings_json)})
+
+def shim_script_toggled(shim_name, state_):
+    if shim_name not in state.script_tracking:
+        logger.warning("Discarding script state toggle for unknown shim %s", shim_name)
+        return
+
+    sid = state.script_tracking[shim_name]["id"]
+    logger.debug("Sending updated toggle for shim %s (plugin %s), state: %s", shim_name, sid, state_)
+    post_request("inbound", {"plugin_id": sid, "type": 2, "data": state_})
+
+def shim_initial_state(shim_name, state_):
+    if shim_name not in state.script_tracking:
+        logger.warning("Discarding initial script state for unknown shim %s", shim_name)
+        return
+
+    sid = state.script_tracking[shim_name]["id"]
+    logger.debug("Sending initial script state for shim %s (plugin %s), state: %s", shim_name, sid, state_)
+    post_request("inbound", {"plugin_id": sid, "type": 6, "data": state_})

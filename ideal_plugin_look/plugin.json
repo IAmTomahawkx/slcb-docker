@@ -4,10 +4,14 @@
     "author": "Tom",
     "version": "1.0",
     "debug": true,
+    "protected_dirs": [
+        "data",
+        "files"
+    ],
     "config": {
         "MySetting": {
             "type": "textbox",
-            "title": "Things",
+            "label": "Things",
             "value": "default setting",
             "tooltip": "just like your normal UI_Config.json",
             "group": ""
