@@ -1,7 +1,6 @@
 from __future__ import annotations
 import asyncio
 import logging
-import random
 import secrets
 import sys
 import time
@@ -265,10 +264,60 @@ class HTTPHandler:
 
     # --- API STUFF
 
-    async def add_points(self, userid: str, username: str, amount: int) -> bool:
+    async def api_add_points(self, userid: str, username: str, amount: int) -> bool | None:
         payload = {
             "type": "AddPoints",
             "args": [userid, username, amount]
+        }
+
+        return await self.put_request(payload)
+
+    async def api_add_all_points(self, data: dict[str, int]) -> list[str] | None:
+        payload = {
+            "type": "AddPointsAll",
+            "args": [data]
+        }
+
+        return await self.put_request(payload)
+
+    async def api_add_all_points_async(self, data: dict[str, int]) -> None:
+        # TODO: https://streamlabs-chatbot-doc.readthedocs.io/en/latest/dev/developer.html#Dev.PythonManager.AddPointsAllAsync
+        payload = {
+            "type": "AddPointsAllAsync",
+            "args": [data, "callable somehow?"]
+        }
+
+        return await self.put_request(payload)
+
+    async def api_remove_points(self, userid: str, username: str, amount: int) -> bool | None:
+        payload = {
+            "type": "RemovePoints",
+            "args": [userid, username, amount]
+        }
+
+        return await self.put_request(payload)
+
+    async def api_remove_all_points(self, data: dict[str, int]) -> list[str] | None:
+        payload = {
+            "type": "RemovePointsAll",
+            "args": [data]
+        }
+
+        return await self.put_request(payload)
+
+    async def api_remove_all_points_async(self, data: dict[str, int]) -> None:
+        # TODO: https://streamlabs-chatbot-doc.readthedocs.io/en/latest/dev/developer.html#Dev.PythonManager.RemovePointsAllAsync
+        payload = {
+            "type": "AddPointsAllAsync",
+            "args": [data, "callable somehow?"]
+        }
+
+        return await self.put_request(payload)
+
+    async def api_get_username(self, userid: str) -> str | None:
+        payload = {
+            "type": "GetDisplayName",
+            "args": [userid]
         }
 
         return await self.put_request(payload)

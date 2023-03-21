@@ -4,16 +4,17 @@ from typing import TYPE_CHECKING, Awaitable, Callable
 
 if TYPE_CHECKING:
     from .manager import Plugin, PluginManager
+    from .http import HTTPHandler
 
 class InjectorLoadUnloadError(ValueError):
     pass
 
 class Interface:
     def __init__(self, manager: PluginManager, plugin: Plugin):
-        self.__manager = manager
-        self.__http = manager._http
-        self.__plugin = plugin
-        self.__injectors = []
+        self.__manager: PluginManager = manager
+        self.__http: HTTPHandler = manager._http
+        self.__plugin: Plugin = plugin
+        self.__injectors: list[Injector] = []
 
     async def load_injector(self, injector: Injector) -> None:
         if injector in self.__injectors:
@@ -29,6 +30,91 @@ class Interface:
             raise InjectorLoadUnloadError("Injector is not loaded")
 
         await injector._teardown(self.__plugin)
+
+    async def get_username(self, userid: str) -> str | None:
+        """|coro|
+
+        Fetches the user's username from the bot.
+
+        Parameters
+        ----------
+        userid: :class:`str`
+            The id of the user to fetch. On twitch this is usually, but not always, the lowercase version of their username.
+
+        Returns
+        --------
+        :class:`str` | ``None``
+            The user's display name. Could return ``None`` if the operation fails.
+        """
+        return await self.__http.api_get_username(userid)
+
+    async def add_points(self, userid: str, username: str, amount: int) -> bool | None:
+        """|coro|
+
+        Adds points to a user.
+
+        Parameters
+        ----------
+        userid: :class:`str`
+            The user's ID.
+        username: :class:`str`
+            The user's display name. This can be retrived via :func:`~Interface.get_username`.
+        amount: :class:`int`
+            The amount of currency to add to the user.
+
+        Returns
+        --------
+        :class:`bool` | ``None``
+            Whether the operation was successful. Could return ``None`` if the operation fails to return to the dock.
+        """
+        return await self.__http.api_add_points(userid, username, amount)
+
+    async def add_points_all(self, amounts: dict[str, int]) -> None:
+        """|coro|
+
+        Adds points to multiple users. Can be used to add points to a large amount of users.
+
+        Parameters
+        ----------
+        amounts: dict[:class:`str`, :class:`int`]
+            A dict of userid: amount.
+        """
+        return await self.__http.api_add_all_points(amounts)
+
+    # TODO: add_points_all_async
+
+    async def remove_points(self, userid: str, username: str, amount: int) -> bool | None:
+        """|coro|
+
+        Removes points from a user.
+
+        Parameters
+        ----------
+        userid: :class:`str`
+            The user's ID.
+        username: :class:`str`
+            The user's display name. This can be retrived via :func:`~Interface.get_username`.
+        amount: :class:`int`
+            The amount of currency to remove from the user.
+
+        Returns
+        --------
+        :class:`bool` | ``None``
+            Whether the operation was successful. Could return ``None`` if the operation fails to return to the dock.
+        """
+        return await self.__http.api_remove_points(userid, username, amount)
+
+    async def remove_points_all(self, amounts: dict[str, int]) -> None:
+        """|coro|
+
+        Adds points to multiple users. Can be used to add points to a large amount of users.
+
+        Parameters
+        ----------
+        amounts: dict[:class:`str`, :class:`int`]
+            A dict of userid: amount.
+        """
+        return await self.__http.api_remove_all_points(amounts)
 
 
 
