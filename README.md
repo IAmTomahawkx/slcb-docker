@@ -29,3 +29,4 @@ Here are a list of things that I will be implementing. Checked boxes mean it is 
 - [ ] Ability to use the `Parse` method
 - [ ] Fully implement core of the Parent method (excluding cooldowns, these should be implemented separately inside the dock)
 - [ ] Handle plugin updates
+- [ ] Use Nuitka to bundle binaries instead of needing to install python (https://pypi.org/project/Nuitka/) (?)
