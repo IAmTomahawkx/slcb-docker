@@ -1,11 +1,13 @@
 from __future__ import annotations
 import asyncio
+import json
 import logging
 import secrets
 import sys
 import time
 import uuid
-from typing import TYPE_CHECKING, Any
+from os import PathLike
+from typing import TYPE_CHECKING, Any, Literal, TypedDict
 
 from aiohttp import web, web_log
 from .enums import AuthState
@@ -19,8 +21,12 @@ access_log = logging.getLogger("dock.access")
 
 kill_code = sys.argv[2] if len(sys.argv) >= 3 else None
 
+class NowPlaying(TypedDict):
+    Key: str
+    Value: str
+
 class HTTPHandler:
-    def __init__(self, manager: PluginManager | None):
+    def __init__(self, manager: PluginManager | None, version: str, version_tuple: tuple[int, int, int]):
         self.manager: PluginManager | None = manager
         self._auth: str | None = None
         self._auth_state: AuthState | None = None
@@ -33,7 +39,11 @@ class HTTPHandler:
         self.nonces: dict[str, asyncio.Future] = dict()
         self.waiting_for_poll: list[dict[str, Any]] = []
 
+        self.version: str = version
+        self.version_tuple: tuple[int, int, int] = version_tuple
+
         self.route_table = web.RouteTableDef()
+        self.route_table.get("/version")(self.route_version)
         self.route_table.post("/auth")(self.route_auth)
         self.route_table.post("/pingpong")(self.route_pingpong)
         self.route_table.get("/kill")(self.route_kill_override)
@@ -117,6 +127,8 @@ class HTTPHandler:
 
         return await self._auth_event.wait()
 
+    async def route_version(self, request: web.Request) -> web.Response:
+        return web.json_response({"version": self.version, "comparable_version": self.version_tuple})
 
     async def route_auth(self, request: web.Request) -> web.Response:
         if self._auth:
@@ -279,12 +291,22 @@ class HTTPHandler:
         return response
 
     def notify_error(self, plugin_id: str, msg: str):
-        self.waiting_for_poll.append({"nonce": None, "data": {"type": "error", "plugin_id": plugin_id, "message": msg}})
+        self.waiting_for_poll.append({"nonce": None, "data": {"type": "@error", "plugin_id": plugin_id, "message": msg}})
 
+    def send_log(self, plugin_id: str, msg: str) -> None:
+        self.waiting_for_poll.append({"nonce": None, "data": {"type": "@log", "plugin_id": plugin_id, "message": msg}})
 
     # --- API STUFF
 
-    async def api_add_points(self, userid: str, username: str, amount: int) -> bool | None:
+    async def get_currency_name(self) -> str:
+        payload = {
+            "type": "GetCurrencyName",
+            "args": []
+        }
+
+        return await self.put_request(payload)
+
+    async def add_points(self, userid: str, username: str, amount: int) -> bool:
         payload = {
             "type": "AddPoints",
             "args": [userid, username, amount]
@@ -292,24 +314,7 @@ class HTTPHandler:
 
         return await self.put_request(payload)
 
-    async def api_add_all_points(self, data: dict[str, int]) -> list[str] | None:
-        payload = {
-            "type": "AddPointsAll",
-            "args": [data]
-        }
-
-        return await self.put_request(payload)
-
-    async def api_add_all_points_async(self, data: dict[str, int]) -> None:
-        # TODO: https://streamlabs-chatbot-doc.readthedocs.io/en/latest/dev/developer.html#Dev.PythonManager.AddPointsAllAsync
-        payload = {
-            "type": "AddPointsAllAsync",
-            "args": [data, "callable somehow?"]
-        }
-
-        return await self.put_request(payload)
-
-    async def api_remove_points(self, userid: str, username: str, amount: int) -> bool | None:
+    async def remove_points(self, userid: str, username: str, amount: int) -> bool:
         payload = {
             "type": "RemovePoints",
             "args": [userid, username, amount]
@@ -317,27 +322,196 @@ class HTTPHandler:
 
         return await self.put_request(payload)
 
-    async def api_remove_all_points(self, data: dict[str, int]) -> list[str] | None:
+    async def add_points_all(self, users: dict[str, int]) -> list[str]:
+        payload = {
+            "type": "AddPointsAll",
+            "args": [users]
+        }
+
+        return await self.put_request(payload) # returns failed users
+
+    async def remove_points_all(self, users: dict[str, int]) -> list[str]:
         payload = {
             "type": "RemovePointsAll",
-            "args": [data]
+            "args": [users]
         }
 
-        return await self.put_request(payload)
+        return await self.put_request(payload) # returns failed users
 
-    async def api_remove_all_points_async(self, data: dict[str, int]) -> None:
-        # TODO: https://streamlabs-chatbot-doc.readthedocs.io/en/latest/dev/developer.html#Dev.PythonManager.RemovePointsAllAsync
+    async def get_points(self, userid: str) -> int:
         payload = {
-            "type": "AddPointsAllAsync",
-            "args": [data, "callable somehow?"]
+            "type": "GetPoints",
+            "args": [userid]
         }
 
         return await self.put_request(payload)
 
-    async def api_get_username(self, userid: str) -> str | None:
+    async def get_rank(self, userid: str) -> str:
+        payload = {
+            "type": "GetRank",
+            "args": [userid]
+        }
+
+        return await self.put_request(payload)
+
+    async def get_hours(self, userid: str) -> float:
+        payload = {
+            "type": "GetHours",
+            "args": [userid]
+        }
+
+        return await self.put_request(payload)
+
+    async def get_currency_users(self, userids: list[str]) -> Any: # TODO need a currency object to deserialize
+        payload = {
+            "type": "GetCurrencyUsers",
+            "args": [userids]
+        }
+
+        return await self.put_request(payload)
+
+    # stream related stuff
+
+    async def send_stream_message(self, text: str) -> None:
+        payload = {
+            "type": "SendStreamMessage",
+            "args": [text]
+        }
+
+        return await self.put_request(payload)
+
+    async def send_stream_whisper(self, text: str) -> None:
+        payload = {
+            "type": "SendStreamWhisper",
+            "args": [text]
+        }
+
+        return await self.put_request(payload)
+
+    async def send_discord_message(self, text: str) -> None:
+        payload = {
+            "type": "SendDiscordMessage",
+            "args": [text]
+        }
+
+        return await self.put_request(payload)
+
+    async def send_discord_dm(self, text: str) -> None:
+        payload = {
+            "type": "SendDiscordDM",
+            "args": [text]
+        }
+
+        return await self.put_request(payload)
+
+    async def broadcast_ws_event(self, event_name: str, data: dict) -> None:
+        payload = {
+            "type": "BroadcastWSEvent",
+            "args": [event_name, json.dumps(data)]
+        }
+
+        return await self.put_request(payload)
+
+    async def has_permission(self, userid: str, permission: str, additional_info: str | None) -> bool:
+        payload = {
+            "type": "HasPermission",
+            "args": [userid, permission, additional_info or ""]
+        }
+
+        return await self.put_request(payload)
+
+    async def get_viewer_list(self) -> list[str]:
+        payload = {
+            "type": "GetViewerList",
+            "args": []
+        }
+
+        return await self.put_request(payload)
+
+    async def get_active_viewer_list(self) -> list[str]:
+        payload = {
+            "type": "GetActiveViewers",
+            "args": []
+        }
+
+        return await self.put_request(payload)
+
+    async def get_random_active_viewer(self) -> str:
+        payload = {
+            "type": "GetRandomActiveViewer",
+            "args": []
+        }
+
+        return await self.put_request(payload)
+
+    async def get_display_name(self, userid: str) -> str:
         payload = {
             "type": "GetDisplayName",
             "args": [userid]
+        }
+
+        return await self.put_request(payload)
+
+    async def is_live(self) -> bool:
+        payload = {
+            "type": "IsLive",
+            "args": []
+        }
+
+        return await self.put_request(payload)
+
+    async def get_streaming_service(self) -> Literal["twitch", "youtube"]:
+        payload = {
+            "type": "GetStreamingService",
+            "args": []
+        }
+
+        return await self.put_request(payload)
+
+    async def get_channel_name(self) -> str: # note: only works on twitch
+        payload = {
+            "type": "GetChannelName",
+            "args": []
+        }
+
+        return await self.put_request(payload)
+
+    async def play_sound(self, filepath: PathLike, volume: int) -> bool: # volume between 0-100
+        payload = {
+            "type": "PlaySound",
+            "args": [str(filepath), volume/100]
+        }
+
+        return await self.put_request(payload)
+
+    async def get_queue_entries(self, n: int) -> dict[int, str]:
+        payload = {
+            "type": "GetQueue",
+            "args": [n]
+        }
+
+        return await self.put_request(payload)
+
+    async def get_song_queue(self, n: int) -> Any: # TODO: need song object
+        payload = {
+            "type": "GetSongQueue",
+            "args": [n]
+        }
+
+        return await self.put_request(payload)
+
+    async def get_playlist_queue(self, n: int) -> Any: # TODO: need song object
+        payload = {
+            "type": "GetSongPlaylist",
+            "args": [n]
+        }
+
+        return await self.put_request(payload)
+
+    async def get_now_playing(self) -> NowPlaying:
+        payload = {
+            "type": "GetNowPlaying",
+            "args": []
         }
 
         return await self.put_request(payload)

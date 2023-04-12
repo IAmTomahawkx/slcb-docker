@@ -361,7 +361,7 @@ def poll_daemon(t):
     for event in resp:
         logger.debug("event %s", event)
         data = event['data']
-        if data["type"] == "error":
+        if data["type"] == "@error":
             did_log = False
             for plugin_data in state.script_tracking.values():
                 if data["plugin_id"] == plugin_data["id"]:

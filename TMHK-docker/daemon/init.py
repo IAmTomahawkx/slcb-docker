@@ -20,7 +20,8 @@ from daemon.enums import AuthState
 
 logger = logging.getLogger("dock.init")
 
-version = "0.1.0a"
+version = "0.1.0a1"
+version_tuple = (0, 1, 0)
 
 if version.endswith(('a', 'b', 'rc')):
     # append version identifier based on commit count
@@ -128,7 +129,7 @@ async def main():
     logger.debug("Running with aiohttp %s", pkg_resources.get_distribution("aiohttp").version)
     logger.debug("Running with ujson %s", pkg_resources.get_distribution("ujson").version)
 
-    http = HTTPHandler(None) # type: ignore
+    http = HTTPHandler(None, version, version_tuple) # type: ignore
     manager = PluginManager(http)
     http.manager = manager # circular arguments, so do this and tell the type checker to take a hike
 

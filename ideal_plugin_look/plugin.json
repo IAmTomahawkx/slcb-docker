@@ -3,6 +3,7 @@
     "description": "My cool plugin",
     "author": "Tom",
     "version": "1.0",
+    "required_dock_version": ["0.1.0", "1.0.0"],
     "debug": true,
     "protected_dirs": [
         "data",
