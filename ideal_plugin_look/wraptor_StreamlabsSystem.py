@@ -27,7 +27,7 @@ is_tested = False
 Parent = None
 base_url = "http://127.0.0.1:1006/"
 DOWNLOAD_URL = "https://github.com/IAmTomahawkx/slcb-docker/archive/refs/heads/master.zip" # use master until a release is ready
-SEARCH_FOR_DIR = "TMHK-docker-install"
+SEARCH_FOR_DIR = "TMHK-docker"
 
 version_re = re.compile(r"(?:(?P<pre_restriction>>=?|<=?)?(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+))|\*")
 
