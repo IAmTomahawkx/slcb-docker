@@ -9,9 +9,15 @@ import logging
 import traceback
 import uuid
 import clr
+import System
 
 clr.AddReference("System.Windows.Forms")
+clr.AddReference([asbly for asbly in System.AppDomain.CurrentDomain.GetAssemblies() if "AnkhBotR2" in str(asbly)][0])
+clr.AddReferenceToFile('CefSharp.Wpf.dll')
 from System.Windows.Forms.MessageBox import Show
+from System.Reflection import *
+from CefSharp.Wpf import ChromiumWebBrowser
+import AnkhBotR2
 
 random = _random.WichmannHill()  # noqa
 sys.platform = "win32"  # fixes the bot setting platform to `cli`, which breaks subprocess
@@ -180,6 +186,7 @@ class _State(object):
         self.killcode = None
         self.process = None
         self.script_tracking = {}
+        self.tab = None # type: BrowserTab
 
         if os.path.exists(RESTART_FILE):
             with codecs.open(RESTART_FILE, encoding="utf-8") as f:
@@ -431,6 +438,9 @@ def Init():
     else:
         start_daemon()
 
+    state.tab = BrowserTab("CTRL", "Dock Dash", "http://127.0.0.1:1006/interface")
+    state.tab.register()
+
     init_commons()
     atinit_search_scripts()
 
@@ -447,6 +457,9 @@ def Execute(data):
 
 def Unload():
     logger.info("Received UNLOAD from bot")
+    if state.tab:
+        state.tab.unload()
+
     _logging_handler.close()
     with codecs.open(RESTART_FILE, mode="w", encoding="UTF-8") as f:
         json.dump({
@@ -699,3 +712,84 @@ def shim_initial_state(shim_name, state_):
     sid = state.script_tracking[shim_name]["id"]
     logger.debug("Sending initial script state for shim %s (plugin %s), state: %s", shim_name, sid, state_)
     post_request("inbound", {"plugin_id": sid, "type": 6, "data": state_})
+
+
+# tab management
+
+class BrowserTab:
+    def __init__(self, icon_string, tab_title, url):
+        self._icon = icon_string
+        self._title = tab_title
+        self._url = url
+
+        def get_tab_collection():
+            t = AnkhBotR2.App.Current.MainWindow.GetType()
+            flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static # type: ignore
+            f_info = t.GetField("Tabs", flags)
+            self.tabs = f_info.GetValue(AnkhBotR2.App.Current.MainWindow)
+
+        _run_in_ui_thread(get_tab_collection)
+
+    def register(self):
+        def _register():
+            # ItemCollection
+            browser = ChromiumWebBrowser()
+            browser.Address = self._url
+
+            self.tab = clone(self.tabs.Items[0])
+            self.tab.IconTxt = self._icon
+            self.tab.Header = self._title
+            self.tab.Content = self.tab.Content.GetType()()
+            self.tab.Content.Children.Add(browser)
+            self.tabs.Items.Add(self.tab)
+            # AnkhBotR2.App.Current.MainWindow.Content.Children[0].Items.Add(self.tab)
+
+        _run_in_ui_thread(_register)
+
+    def unload(self):
+        def _unload():
+            self.tabs.Items.Remove(self.tab)
+
+        _run_in_ui_thread(_unload)
+
+
+def _run_in_ui_thread(f):
+    AnkhBotR2.App.Current.Dispatcher.Invoke(System.Action(f))
+
+
+def print_server_message(msg):
+    g_manager = AnkhBotR2.Managers.GlobalManager.Instance
+    handler = g_manager.SystemHandler
+    handler.StreamerClient.PrintServerMessage(msg)
+    handler.StreamerClient.WriteTextToUI()
+
+
+def clone(c):
+    from System.ComponentModel import TypeDescriptor # type: ignore
+    cNew = (c.GetType())()
+    pdc = TypeDescriptor.GetProperties(c) # type: ignore
+    for entry in pdc:
+        val = entry.GetValue(c)
+        try:
+            entry.SetValue(cNew, val)
+        except:
+            continue
+    return cNew
+
+
+# +------------------------+
+# |  Reflection functions  |
+# +------------------------+
+
+def get_all_properties_from_type(t, non_public=False):
+    if non_public:
+        return t.GetProperties(BindingFlags.Instance | BindingFlags.NonPublic) # type: ignore
+    else:
+        return t.GetProperties()
+
+
+def get_all_fields_from_type(t, non_public=False):
+    if non_public:
+        return t.GetFields(BindingFlags.Instance | BindingFlags.NonPublic) # type: ignore
+    else:
+        return t.GetFields()
