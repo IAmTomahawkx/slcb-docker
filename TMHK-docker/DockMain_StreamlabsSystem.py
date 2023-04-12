@@ -261,6 +261,9 @@ def post_request(route, payload):
 
     elif 200 <= data["status"] <= 299:
         Parent.Log(ScriptName, str(data["response"]))
+        if isinstance(data["response"], dict):
+            return data["response"]
+
         payload = json.loads(data["response"])
         return payload
 
@@ -572,6 +575,7 @@ def atinit_search_scripts():
                 response = post_request("inbound/load-plugin", {"plugin_id": None, "directory": directory})
                 if "id" in response:
                     processed_meta["id"] = response["id"]
+                    processed_meta["directory"] = os.path.join(DAEMON_PATH, "plugins", response["id"])
 
                 if "error" in response:
                     processed_meta["did_fail_load"] = True
