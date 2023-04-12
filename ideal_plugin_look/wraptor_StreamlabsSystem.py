@@ -46,6 +46,7 @@ def Tick():
             if version is None or not version_meets_constraints(version):
                 install_dock()
                 #eradicate_self()
+                msgbox("Please reload the scripts tab to complete load of the plugin dock")
         except RuntimeError as e:
             msgbox(e.args[0])
             return
