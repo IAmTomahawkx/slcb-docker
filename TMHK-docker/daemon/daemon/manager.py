@@ -4,7 +4,6 @@ import asyncio
 import importlib
 import logging
 import os
-import sys
 import traceback
 import uuid
 from pathlib import Path
@@ -18,7 +17,7 @@ import ujson
 if TYPE_CHECKING:
     from http import HTTPHandler
 
-    from .type.payloads import GenericInboundBotPayload, InboundBotPayload, Parse as ParsePayload
+    from .type.payloads import GenericInboundBotPayload, InboundBotPayload, Parse as ParsePayload, InboundParsePayload
     from .type.plugin import Config, PluginModule, UIConfig
     from .interface import Injector
 
@@ -203,7 +202,10 @@ class Plugin:
         hook = self._listeners["parse"][0]
         obj: ParseData = ParseData(payload)
         try:
-            return str(await hook(obj))
+            if hook[0]:
+                return str(await hook[1](hook[0], obj))
+            else:
+                return str(await hook[1](obj))
         except Exception as e:
             asyncio.create_task(self.call_error_listeners("parse", e))
             return payload['string']
@@ -235,22 +237,21 @@ class PluginManager:
 
         if sid not in self.plugins:
             logger.warning("Inbound payload referencing unknown plugin %s. Discarding", sid)
-    async def handle_parse(self, payload: InboundBotPayload) -> str:
+    async def handle_parse(self, payload: InboundParsePayload) -> str:
         type_ = try_enum(PayloadTypeEnum, payload['type'])
         if type_ is not PayloadTypeEnum.parse:
             raise TypeError(f"Payload of type {type_.name} ({type_.value}) passed to handle_parse") # type: ignore # pycharm sucks
 
-        sid: str = payload['plugin_id']
-        if sid not in self.plugins:
-            logger.warning("Inbound parse payload referencing unknown plugin %s. Discarding", sid)
-            raise ValueError("Unknown plugin id")
-
-        plugin: Plugin = self.plugins[sid]
         data: ParsePayload = payload['data']
-        if not plugin.has_parse_hook:
-            return data['string']
 
-        return await plugin.call_parse_hook(data)
+        for _ in range(2):
+            for plugin in self.plugins.values():
+                if not plugin.has_parse_hook:
+                    continue
+
+                data["string"] = await plugin.call_parse_hook(data)
+
+        return data["string"]
 
     async def handle_button(self, payload: InboundBotPayload) -> None:
         type_ = try_enum(PayloadTypeEnum, payload['type'])

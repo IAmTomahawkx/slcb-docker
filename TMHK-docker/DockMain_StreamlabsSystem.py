@@ -187,6 +187,7 @@ class _State(object):
         self.process = None
         self.script_tracking = {}
         self.tab = None # type: BrowserTab
+        self.parse_cooldowns = {}
 
         if os.path.exists(RESTART_FILE):
             with codecs.open(RESTART_FILE, encoding="utf-8") as f:
@@ -470,6 +471,27 @@ def Unload():
             "auth": state.auth,
             "killcode": state.killcode
         }, f)
+
+def Parse(msg, author_id, author_name, target_id, target_name, trigger_msg):
+    now = time.time()
+    hsh = hash(msg + author_id + target_id + trigger_msg) # parse keeps a hashmap in the global state to prevent duplicate events from going to the daemon
+    if hsh in state.parse_cooldowns:
+        _parse_handle_hashes(now)
+        return msg
+    else:
+        state.parse_cooldowns[hsh] = now
+
+    logger.info("sending parse request: " + str(hsh))
+
+    response = post_request("/inbound/parse", {"plugin_id": None, "type": 1, "data": {"string": msg, "authorid": author_id, "authorname": author_name,
+                                    "targetid": target_id, "targetname": target_name, "trigger_message": trigger_msg}})
+
+    return response["text"]
+
+def _parse_handle_hashes(now):
+    for hsh in set(state.parse_cooldowns):
+        if now - state.parse_cooldowns[hsh] > 3:
+            del state.parse_cooldowns[hsh]
 
 def ScriptToggled(script_state):
     if not script_state:

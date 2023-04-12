@@ -39,6 +39,10 @@ class InboundBotPayload(TypedDict):
     type: PayloadType
     data: Execute | Reload | Parse | StateToggle | ButtonClick
 
+class InboundParsePayload(TypedDict):
+    plugin_id: None
+    type: Literal[1]
+    data: Parse
 
 class InboundResponsePayload(TypedDict):
     nonce: str

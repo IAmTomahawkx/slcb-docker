@@ -14,7 +14,7 @@ from .enums import AuthState
 
 if TYPE_CHECKING:
     from .manager import PluginManager
-    from .type.payloads import InboundBotPayload, InboundResponsePayload, ScriptLoadPayload, ScriptUnloadPayload, OutboundDataPayload
+    from .type.payloads import InboundBotPayload, InboundParsePayload, InboundResponsePayload, ScriptLoadPayload, ScriptUnloadPayload, OutboundDataPayload
 
 logger = logging.getLogger("dock.http")
 access_log = logging.getLogger("dock.access")
@@ -221,14 +221,14 @@ class HTTPHandler:
         if "Authorization" not in request.headers or request.headers["Authorization"] != self._auth:
             return web.json_response({"error": "missing authorization"}, status=401)
 
-        payload: InboundBotPayload = await request.json()
+        payload: InboundParsePayload = await request.json()
         try:
             resp = await self.manager.handle_parse(payload)
         except Exception as e:
             logger.error("Manager failed to handle inbound parse request. Falling back to input", exc_info=e)
             resp = payload['data']['string']
 
-        return web.Response(status=200, content_type="text/plain", body=resp)
+        return web.json_response({"text": resp})
 
     async def inbound_button(self, request: web.Request) -> web.Response:
         if "Authorization" not in request.headers or request.headers["Authorization"] != self._auth:

@@ -18,7 +18,7 @@ No more unresolved `Parent` variable, no more being unable to do networking. You
 ## How do I use this?
 Currently, this software is unstable and in pre-alpha. I have not made release copies which can easily be installed.
 That being said, you can install this manually by cloning the repository and copying the TMHK-docker folder into your bots Scripts folder.
-
+Alternatively, attempting to install any plugin that has been properly bundled will result in the latest commit on the master branch being installed automatically.
 
 ## Roadmap
 Here are a list of things that I will be implementing. Checked boxes mean it is currently implemented
@@ -26,7 +26,9 @@ Here are a list of things that I will be implementing. Checked boxes mean it is 
 - [x] Base daemon with poll+response capabilities
 - [x] Create shim scripts in the bot for active representation of each plugin (including UI)
 - [ ] Create plugin interface which retains the functionality of the Chatbot interface, while also introducing modern practices
-- [ ] Ability to use the `Parse` method
-- [ ] Fully implement core of the Parent method (excluding cooldowns, these should be implemented separately inside the dock)
+- [x] Ability to use the `Parse` method
+- [ ] Fully implement core of the Parent method (excluding cooldowns and obs, these should be implemented separately inside the dock)
+- [ ] obs and Streamlabs desktop control support (not using bots internal controls)
+- [ ] Create dashboard to control plugins and view logs easily (potentially provide more advanced uis for plugins in the future?)
 - [ ] Handle plugin updates
 - [ ] Use Nuitka to bundle binaries instead of needing to install python (https://pypi.org/project/Nuitka/) (?)
